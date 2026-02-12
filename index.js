@@ -27,8 +27,8 @@ app.post('/api/convert-mq', async (req, res) => {
         'content-type': 'application/json'
       },
       body: JSON.stringify({
-     model: 'claude-3-5-sonnet-20241022',  // ← 최신 버전!
-max_tokens: 8000,
+     model: 'claude-3-haiku-20240307',
+max_tokens: 16000,  // ← Haiku는 Output 10K까지
         messages: [{
           role: 'user',
           content: `You are an expert MQL to JavaScript converter for cryptocurrency trading strategies.
