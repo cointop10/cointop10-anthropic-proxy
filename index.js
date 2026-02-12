@@ -27,8 +27,8 @@ app.post('/api/convert-mq', async (req, res) => {
         'content-type': 'application/json'
       },
       body: JSON.stringify({
-     model: 'claude-3-haiku-20240307',
-max_tokens: 4000,
+    model: 'claude-sonnet-4-5-20250929',
+max_tokens: 8000,
         messages: [{
           role: 'user',
 content: `Convert ${mq_version} EA to JavaScript.
