@@ -31,34 +31,28 @@ app.post('/api/convert-mq', async (req, res) => {
 max_tokens: 4000,
         messages: [{
           role: 'user',
-          content: `You are an expert MQL to JavaScript converter for cryptocurrency trading strategies.
+content: `Convert ${mq_version} EA to JavaScript.
 
-# TASK
-Convert this ${mq_version} Expert Advisor to a clean JavaScript trading strategy.
-
-# INPUT CODE
+CODE:
 \`\`\`
 ${mq_code}
 \`\`\`
 
-# OUTPUT FORMAT
-Return ONLY a JSON object with this exact structure (no markdown, no explanations):
-
+OUTPUT (JSON only, no markdown):
 {
-  "js_code": "function runStrategy(candles, settings) { ... }",
-  "parameters": {
-    "paramName": {
-      "type": "number" | "boolean" | "select",
-      "default": value,
-      "min": number,
-      "max": number,
-      "step": number,
-      "label": "Display Name",
-      "category": "strategy" | "advanced",
-      "options": ["opt1", "opt2"]  // only for select type
-    }
-  }
+  "js_code": "function runStrategy(candles, settings) {...}",
+  "parameters": {"paramName": {"type": "number", "default": 14, "min": 2, "max": 100, "label": "Label", "category": "strategy"}}
 }
+
+# CORE RULES
+1. Function: runStrategy(candles, settings) returns {trades, equity_curve, roi, mdd, win_rate, total_trades, final_balance}
+2. candles: [{timestamp, open, high, low, close, volume}]
+3. ❌ EXCLUDE: LotSize/Lots/Volume params (Position = initialBalance × equityPercent × leverage)
+4. ✅ INCLUDE: indicator periods (RSI, MA, Stochastic), ATR multiplier, filters, TP/SL
+5. masterReverse: flip buy/sell when settings.masterReverse === true
+6. Track: {entry_time, entry_price, exit_time, exit_price, side, pnl, fee, size, duration, order_type, balance}
+7. Fees: settings.feePercent (0.05% futures, 0.1% spot)
+8. Be CONCISE: <3500 tokens
 
 # CONVERSION RULES
 "CRITICAL: You have a 4000 token limit. Be extremely concise.
