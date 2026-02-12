@@ -28,7 +28,7 @@ app.post('/api/convert-mq', async (req, res) => {
       },
       body: JSON.stringify({
      model: 'claude-3-haiku-20240307',
-max_tokens: 16000,  // ← Haiku는 Output 10K까지
+max_tokens: 4000,
         messages: [{
           role: 'user',
           content: `You are an expert MQL to JavaScript converter for cryptocurrency trading strategies.
@@ -61,6 +61,11 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
 }
 
 # CONVERSION RULES
+"CRITICAL: You have a 4000 token limit. Be extremely concise.
+- Omit comments except critical ones
+- Use short variable names
+- Combine similar logic
+- Focus on core trading logic only"
 
 ## 1. CORE FUNCTION
 - Function signature: \`function runStrategy(candles, settings) { return {...} }\`
