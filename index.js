@@ -27,7 +27,7 @@ app.post('/api/convert-mq', async (req, res) => {
         'content-type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-3-5-sonnet-20240620',
         max_tokens: 8000,
         messages: [{
           role: 'user',
