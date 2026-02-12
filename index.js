@@ -326,6 +326,60 @@ if (rsi < settings.rsiOversold && closes[i] < bb.lower) {
 - Leverage: Use \`settings.market_type === 'futures' ? settings.leverage : 1\`
 - Fees: \`settings.feePercent\` (default 0.05% for futures, 0.1% for spot)
 
+## CRITICAL - LOT SIZE EXCLUSION
+
+❌ **EXCLUDE these forex-specific parameters:**
+- LotSize, Lots, Volume (forex lot units)
+- Risk, RiskPercent (if lot-based)
+- PositionSize (if forex lot units)
+- MoneyManagement parameters (lot-based)
+
+**Reason:** Position sizing is handled automatically by:
+\`\`\`
+Position = InitialBalance × EquityPercent × Leverage
+\`\`\`
+
+✅ **ONLY include parameters that affect STRATEGY LOGIC:**
+- Technical indicator settings (RSI period, MA period, Stochastic settings, etc)
+- Entry/Exit filters (time filters, volume filters, price action rules)
+- Risk management LOGIC (ATR-based stops, trailing stops, break-even, max trades per day)
+- Market conditions (volatility filters, trend filters)
+
+**Special handling for ATR-based parameters:**
+If the EA uses ATR for stop loss or take profit:
+- Extract ATR Period (e.g., atrPeriod)
+- Extract ATR Multiplier (e.g., atrMultiplier, atrStopLoss, atrTakeProfit)
+- These help adjust forex volatility → crypto volatility
+
+**Example transformation:**
+\`\`\`
+// Forex EA:
+input double LotSize = 0.1;          // ❌ EXCLUDE
+input int RSI_Period = 14;           // ✅ INCLUDE (strategy logic)
+input double ATR_Multiplier = 2.0;   // ✅ INCLUDE (volatility adjustment)
+
+// Output parameters:
+{
+  "rsiPeriod": {
+    "type": "number",
+    "default": 14,
+    "min": 2,
+    "max": 100,
+    "label": "RSI Period",
+    "category": "strategy"
+  },
+  "atrMultiplier": {
+    "type": "number",
+    "default": 2.0,
+    "min": 0.5,
+    "max": 5.0,
+    "step": 0.1,
+    "label": "ATR Multiplier",
+    "category": "advanced"
+  }
+}
+\`\`\`
+
 ## 6. PARAMETERS EXTRACTION
 For every \`input\` or \`extern\` variable in MQ code:
 - Extract name, type, default value
