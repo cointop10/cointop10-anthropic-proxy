@@ -86,30 +86,60 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
 ❌ File I/O operations
 
 ## 4. TECHNICAL INDICATORS
-Use simple inline implementations or reference standard formulas:
+
+Support ALL MT4/MT5 built-in indicators + custom indicators from the code.
+
+### Standard Indicators Library
+
+**TREND:**
+- Moving Average (SMA, EMA, SMMA, LWMA)
+- Adaptive Moving Average (AMA)
+- Parabolic SAR
+- Ichimoku Kinko Hyo
+- Envelopes
+- Bollinger Bands
+- Standard Deviation
+- Average Directional Movement Index (ADX)
+
+**OSCILLATORS:**
+- Relative Strength Index (RSI)
+- Stochastic Oscillator
+- MACD
+- Commodity Channel Index (CCI)
+- Momentum
+- Williams %R
+- DeMarker
+- Average True Range (ATR)
+- Bears Power
+- Bulls Power
+- Force Index
+- Relative Vigor Index (RVI)
+
+**VOLUMES:**
+- Volumes
+- On Balance Volume (OBV)
+- Accumulation/Distribution
+- Money Flow Index (MFI)
+
+**BILL WILLIAMS:**
+- Alligator
+- Fractals
+- Awesome Oscillator
+- Accelerator Oscillator
+- Market Facilitation Index
+- Gator Oscillator
+
+### Implementation Guidelines
+
+Use inline implementations for all indicators. Here are key examples:
 
 \`\`\`javascript
-// RSI
-function calculateRSI(prices, period) {
-  let gains = 0, losses = 0;
-  for (let i = 1; i < period + 1; i++) {
-    const change = prices[i] - prices[i-1];
-    if (change > 0) gains += change;
-    else losses -= change;
-  }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  const rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
-}
-
-// Simple MA
-function calculateMA(prices, period) {
+// === MOVING AVERAGES ===
+function calculateSMA(prices, period) {
   const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
   return sum / period;
 }
 
-// EMA
 function calculateEMA(prices, period) {
   const k = 2 / (period + 1);
   let ema = prices[0];
@@ -119,12 +149,167 @@ function calculateEMA(prices, period) {
   return ema;
 }
 
-// Bollinger Bands
-function calculateBB(prices, period, deviation) {
-  const ma = calculateMA(prices, period);
-  const variance = prices.slice(-period).reduce((sum, p) => sum + Math.pow(p - ma, 2), 0) / period;
+// === RSI ===
+function calculateRSI(prices, period = 14) {
+  if (prices.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  for (let i = prices.length - period; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
+    if (change > 0) gains += change;
+    else losses -= change;
+  }
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+// === STOCHASTIC ===
+function calculateStochastic(highs, lows, closes, kPeriod, dPeriod, slowing) {
+  const highest = Math.max(...highs.slice(-kPeriod));
+  const lowest = Math.min(...lows.slice(-kPeriod));
+  const k = ((closes[closes.length - 1] - lowest) / (highest - lowest)) * 100;
+  // D is SMA of K values
+  return { k, d: k }; // Simplified
+}
+
+// === MACD ===
+function calculateMACD(prices, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+  const fastEMA = calculateEMA(prices, fastPeriod);
+  const slowEMA = calculateEMA(prices, slowPeriod);
+  const macd = fastEMA - slowEMA;
+  return { macd, signal: macd, histogram: 0 }; // Simplified
+}
+
+// === BOLLINGER BANDS ===
+function calculateBB(prices, period = 20, deviation = 2) {
+  const sma = calculateSMA(prices, period);
+  const slice = prices.slice(-period);
+  const variance = slice.reduce((sum, p) => sum + Math.pow(p - sma, 2), 0) / period;
   const std = Math.sqrt(variance);
-  return { upper: ma + deviation * std, middle: ma, lower: ma - deviation * std };
+  return {
+    upper: sma + deviation * std,
+    middle: sma,
+    lower: sma - deviation * std
+  };
+}
+
+// === ATR ===
+function calculateATR(highs, lows, closes, period = 14) {
+  let tr = 0;
+  for (let i = Math.max(1, highs.length - period); i < highs.length; i++) {
+    const h = highs[i];
+    const l = lows[i];
+    const c = closes[i - 1];
+    tr += Math.max(h - l, Math.abs(h - c), Math.abs(l - c));
+  }
+  return tr / Math.min(period, highs.length - 1);
+}
+
+// === ADX ===
+function calculateADX(highs, lows, closes, period = 14) {
+  // Simplified: return value between 0-100
+  const atr = calculateATR(highs, lows, closes, period);
+  return Math.min(100, atr / closes[closes.length - 1] * 100);
+}
+
+// === CCI ===
+function calculateCCI(highs, lows, closes, period = 20) {
+  const tp = (highs[highs.length - 1] + lows[lows.length - 1] + closes[closes.length - 1]) / 3;
+  const sma = calculateSMA(closes, period);
+  const meanDev = closes.slice(-period).reduce((sum, p) => sum + Math.abs(p - sma), 0) / period;
+  return (tp - sma) / (0.015 * meanDev);
+}
+
+// === PARABOLIC SAR ===
+function calculateSAR(highs, lows, acceleration = 0.02, maximum = 0.2) {
+  // Simplified implementation
+  const isUptrend = closes[closes.length - 1] > closes[closes.length - 2];
+  return isUptrend ? Math.min(...lows.slice(-5)) : Math.max(...highs.slice(-5));
+}
+
+// === ICHIMOKU ===
+function calculateIchimoku(highs, lows, tenkan = 9, kijun = 26, senkouB = 52) {
+  const tenkanSen = (Math.max(...highs.slice(-tenkan)) + Math.min(...lows.slice(-tenkan))) / 2;
+  const kijunSen = (Math.max(...highs.slice(-kijun)) + Math.min(...lows.slice(-kijun))) / 2;
+  const senkouA = (tenkanSen + kijunSen) / 2;
+  const senkouB = (Math.max(...highs.slice(-senkouB)) + Math.min(...lows.slice(-senkouB))) / 2;
+  return { tenkan: tenkanSen, kijun: kijunSen, spanA: senkouA, spanB: senkouB };
+}
+
+// === WILLIAMS %R ===
+function calculateWilliamsR(highs, lows, closes, period = 14) {
+  const highest = Math.max(...highs.slice(-period));
+  const lowest = Math.min(...lows.slice(-period));
+  return ((highest - closes[closes.length - 1]) / (highest - lowest)) * -100;
+}
+
+// === OBV ===
+function calculateOBV(closes, volumes) {
+  let obv = 0;
+  for (let i = 1; i < closes.length; i++) {
+    if (closes[i] > closes[i - 1]) obv += volumes[i];
+    else if (closes[i] < closes[i - 1]) obv -= volumes[i];
+  }
+  return obv;
+}
+
+// === MFI ===
+function calculateMFI(highs, lows, closes, volumes, period = 14) {
+  let posFlow = 0, negFlow = 0;
+  for (let i = Math.max(1, closes.length - period); i < closes.length; i++) {
+    const tp = (highs[i] + lows[i] + closes[i]) / 3;
+    const mf = tp * volumes[i];
+    if (closes[i] > closes[i - 1]) posFlow += mf;
+    else negFlow += mf;
+  }
+  const mfr = posFlow / negFlow;
+  return 100 - (100 / (1 + mfr));
+}
+
+// === AWESOME OSCILLATOR ===
+function calculateAO(highs, lows) {
+  const medianPrice = (highs[highs.length - 1] + lows[lows.length - 1]) / 2;
+  const sma5 = calculateSMA(highs.map((h, i) => (h + lows[i]) / 2), 5);
+  const sma34 = calculateSMA(highs.map((h, i) => (h + lows[i]) / 2), 34);
+  return sma5 - sma34;
+}
+
+// === ALLIGATOR ===
+function calculateAlligator(highs, lows, closes) {
+  const median = (highs[highs.length - 1] + lows[lows.length - 1]) / 2;
+  return {
+    jaw: calculateSMA([median], 13),
+    teeth: calculateSMA([median], 8),
+    lips: calculateSMA([median], 5)
+  };
+}
+\`\`\`
+
+### Custom Indicators
+If the MQ code includes custom indicators (not in standard list):
+- Extract their calculation logic
+- Convert to JavaScript
+- Add as helper functions
+- Include their parameters in the parameters object
+
+### Indicator Usage Pattern
+\`\`\`javascript
+// Extract price arrays
+const closes = candles.map(c => c.close);
+const highs = candles.map(c => c.high);
+const lows = candles.map(c => c.low);
+const volumes = candles.map(c => c.volume);
+
+// Calculate indicators
+const rsi = calculateRSI(closes.slice(0, i + 1), settings.rsiPeriod);
+const bb = calculateBB(closes.slice(0, i + 1), settings.bbPeriod, settings.bbDeviation);
+const macd = calculateMACD(closes.slice(0, i + 1), settings.macdFast, settings.macdSlow, settings.macdSignal);
+
+// Use in signals
+if (rsi < settings.rsiOversold && closes[i] < bb.lower) {
+  // Buy signal
 }
 \`\`\`
 
