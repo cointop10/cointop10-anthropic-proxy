@@ -509,3 +509,22 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Proxy running on port ${PORT}`);
 });
+
+app.post('/api/backtest', async (req, res) => {
+  try {
+    const { js_code, candles, settings } = req.body;
+    
+    console.log('🔵 Backtest execution');
+    console.log('Candles:', candles.length);
+    
+    const runStrategy = eval(`(${js_code})`);
+    const result = runStrategy(candles, settings);
+    
+    console.log('✅ Trades:', result.total_trades);
+    res.json(result);
+    
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
