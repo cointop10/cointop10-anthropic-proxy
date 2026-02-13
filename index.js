@@ -692,8 +692,10 @@ if (!fs.existsSync(filePath)) {
     
     console.log('✅ Converted to', settings.timeframe, ':', convertedCandles.length, 'candles');
     
-// 6. 표준 지표 함수 정의 (MT4/MT5 전체)
+
+// 6. 표준 지표 함수 정의 (MT4/MT5 전체 + 추가 지표)
 const indicators = {
+  // ========== MOVING AVERAGES ==========
   calculateSMA: function(prices, period) {
     const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
     return sum / period;
@@ -729,6 +731,17 @@ const indicators = {
     return lwma;
   },
 
+  calculateAMA: function(prices, period = 10, fastPeriod = 2, slowPeriod = 30) {
+    const er = Math.abs(prices[prices.length - 1] - prices[prices.length - 1 - period]) / 
+               prices.slice(-period).reduce((sum, p, i, arr) => i > 0 ? sum + Math.abs(p - arr[i-1]) : sum, 0);
+    const fastSC = 2 / (fastPeriod + 1);
+    const slowSC = 2 / (slowPeriod + 1);
+    const ssc = er * (fastSC - slowSC) + slowSC;
+    const c = ssc * ssc;
+    return prices[prices.length - 1] * c + (prices[prices.length - 2] || prices[prices.length - 1]) * (1 - c);
+  },
+
+  // ========== OSCILLATORS ==========
   calculateRSI: function(prices, period = 14) {
     if (prices.length < period + 1) return 50;
     let gains = 0, losses = 0;
@@ -775,16 +788,15 @@ const indicators = {
     return ((highest - closes[closes.length - 1]) / (highest - lowest)) * -100;
   },
 
-  calculateATR: function(highs, lows, closes, period = 14) {
-    if (highs.length < period + 1) return 0;
-    let tr = 0;
+  calculateDeMarker: function(highs, lows, period = 14) {
+    let deMax = 0, deMin = 0;
     for (let i = Math.max(1, highs.length - period); i < highs.length; i++) {
-      const h = highs[i];
-      const l = lows[i];
-      const c = closes[i - 1];
-      tr += Math.max(h - l, Math.abs(h - c), Math.abs(l - c));
+      const dh = highs[i] > highs[i - 1] ? highs[i] - highs[i - 1] : 0;
+      const dl = lows[i] < lows[i - 1] ? lows[i - 1] - lows[i] : 0;
+      deMax += dh;
+      deMin += dl;
     }
-    return tr / Math.min(period, highs.length - 1);
+    return deMin === 0 ? 100 : (deMax / (deMax + deMin)) * 100;
   },
 
   calculateRVI: function(opens, closes, highs, lows, period = 10) {
@@ -793,6 +805,7 @@ const indicators = {
     return den === 0 ? 0 : num / den;
   },
 
+  // ========== BANDS & CHANNELS ==========
   calculateBB: function(prices, period = 20, deviation = 2) {
     const sma = this.calculateSMA(prices, period);
     const slice = prices.slice(-period);
@@ -813,6 +826,45 @@ const indicators = {
     };
   },
 
+  calculateDonchian: function(highs, lows, period = 20) {
+    return {
+      upper: Math.max(...highs.slice(-period)),
+      middle: (Math.max(...highs.slice(-period)) + Math.min(...lows.slice(-period))) / 2,
+      lower: Math.min(...lows.slice(-period))
+    };
+  },
+
+  calculateKeltner: function(highs, lows, closes, period = 20, multiplier = 2) {
+    const ema = this.calculateEMA(closes, period);
+    const atr = this.calculateATR(highs, lows, closes, period);
+    return {
+      upper: ema + multiplier * atr,
+      middle: ema,
+      lower: ema - multiplier * atr
+    };
+  },
+
+  calculateStdDev: function(prices, period = 20) {
+    const sma = this.calculateSMA(prices, period);
+    const slice = prices.slice(-period);
+    const variance = slice.reduce((sum, p) => sum + Math.pow(p - sma, 2), 0) / period;
+    return Math.sqrt(variance);
+  },
+
+  // ========== VOLATILITY ==========
+  calculateATR: function(highs, lows, closes, period = 14) {
+    if (highs.length < period + 1) return 0;
+    let tr = 0;
+    for (let i = Math.max(1, highs.length - period); i < highs.length; i++) {
+      const h = highs[i];
+      const l = lows[i];
+      const c = closes[i - 1];
+      tr += Math.max(h - l, Math.abs(h - c), Math.abs(l - c));
+    }
+    return tr / Math.min(period, highs.length - 1);
+  },
+
+  // ========== TREND ==========
   calculateSAR: function(highs, lows, closes, acceleration = 0.02, maximum = 0.2) {
     const isUptrend = closes[closes.length - 1] > closes[closes.length - 2];
     return isUptrend ? Math.min(...lows.slice(-5)) : Math.max(...highs.slice(-5));
@@ -831,6 +883,31 @@ const indicators = {
     return Math.min(100, atr / closes[closes.length - 1] * 100);
   },
 
+  calculateSuperTrend: function(highs, lows, closes, period = 10, multiplier = 3) {
+    const atr = this.calculateATR(highs, lows, closes, period);
+    const hl2 = (highs[highs.length - 1] + lows[lows.length - 1]) / 2;
+    const upperBand = hl2 + multiplier * atr;
+    const lowerBand = hl2 - multiplier * atr;
+    const isUptrend = closes[closes.length - 1] > lowerBand;
+    return {
+      value: isUptrend ? lowerBand : upperBand,
+      trend: isUptrend ? 1 : -1
+    };
+  },
+
+  calculateAroon: function(highs, lows, period = 25) {
+    const highIndex = highs.slice(-period).lastIndexOf(Math.max(...highs.slice(-period)));
+    const lowIndex = lows.slice(-period).lastIndexOf(Math.min(...lows.slice(-period)));
+    const aroonUp = ((period - highIndex) / period) * 100;
+    const aroonDown = ((period - lowIndex) / period) * 100;
+    return {
+      up: aroonUp,
+      down: aroonDown,
+      oscillator: aroonUp - aroonDown
+    };
+  },
+
+  // ========== VOLUME ==========
   calculateOBV: function(closes, volumes) {
     let obv = 0;
     for (let i = 1; i < closes.length; i++) {
@@ -861,6 +938,17 @@ const indicators = {
     return 100 - (100 / (1 + mfr));
   },
 
+  calculateVWAP: function(highs, lows, closes, volumes) {
+    let sumPV = 0, sumV = 0;
+    for (let i = 0; i < closes.length; i++) {
+      const typical = (highs[i] + lows[i] + closes[i]) / 3;
+      sumPV += typical * volumes[i];
+      sumV += volumes[i];
+    }
+    return sumV === 0 ? closes[closes.length - 1] : sumPV / sumV;
+  },
+
+  // ========== BILL WILLIAMS ==========
   calculateAO: function(highs, lows) {
     const medianPrice = (highs[highs.length - 1] + lows[lows.length - 1]) / 2;
     const sma5 = this.calculateSMA(highs.map((h, i) => (h + lows[i]) / 2), 5);
@@ -901,32 +989,9 @@ const indicators = {
     };
   },
 
-  calculateAMA: function(prices, period = 10, fastPeriod = 2, slowPeriod = 30) {
-    const er = Math.abs(prices[prices.length - 1] - prices[prices.length - 1 - period]) / 
-               prices.slice(-period).reduce((sum, p, i, arr) => i > 0 ? sum + Math.abs(p - arr[i-1]) : sum, 0);
-    const fastSC = 2 / (fastPeriod + 1);
-    const slowSC = 2 / (slowPeriod + 1);
-    const ssc = er * (fastSC - slowSC) + slowSC;
-    const c = ssc * ssc;
-    return prices[prices.length - 1] * c + (prices[prices.length - 2] || prices[prices.length - 1]) * (1 - c);
-  },
-
-  calculateStdDev: function(prices, period = 20) {
-    const sma = this.calculateSMA(prices, period);
-    const slice = prices.slice(-period);
-    const variance = slice.reduce((sum, p) => sum + Math.pow(p - sma, 2), 0) / period;
-    return Math.sqrt(variance);
-  },
-
-  calculateDeMarker: function(highs, lows, period = 14) {
-    let deMax = 0, deMin = 0;
-    for (let i = Math.max(1, highs.length - period); i < highs.length; i++) {
-      const dh = highs[i] > highs[i - 1] ? highs[i] - highs[i - 1] : 0;
-      const dl = lows[i] < lows[i - 1] ? lows[i - 1] - lows[i] : 0;
-      deMax += dh;
-      deMin += dl;
-    }
-    return deMin === 0 ? 100 : (deMax / (deMax + deMin)) * 100;
+  calculateBWMFI: function(highs, lows, closes, volumes) {
+    const range = highs[highs.length - 1] - lows[lows.length - 1];
+    return range === 0 ? 0 : (volumes[volumes.length - 1] / range);
   },
 
   calculateBearsPower: function(closes, highs, lows, period = 13) {
@@ -944,9 +1009,159 @@ const indicators = {
     return this.calculateEMA([force], period);
   },
 
-  calculateBWMFI: function(highs, lows, closes, volumes) {
-    const range = highs[highs.length - 1] - lows[lows.length - 1];
-    return range === 0 ? 0 : (volumes[volumes.length - 1] / range);
+  calculateElderRay: function(closes, highs, lows, period = 13) {
+    const ema = this.calculateEMA(closes, period);
+    return {
+      bullPower: highs[highs.length - 1] - ema,
+      bearPower: lows[lows.length - 1] - ema
+    };
+  },
+
+  // ========== PIVOT POINTS ==========
+  calculatePivot: function(high, low, close) {
+    const pivot = (high + low + close) / 3;
+    return {
+      pivot: pivot,
+      r1: 2 * pivot - low,
+      r2: pivot + (high - low),
+      r3: high + 2 * (pivot - low),
+      s1: 2 * pivot - high,
+      s2: pivot - (high - low),
+      s3: low - 2 * (high - pivot)
+    };
+  },
+
+  // ========== FIBONACCI ==========
+  calculateFibonacci: function(high, low) {
+    const diff = high - low;
+    return {
+      level_0: high,
+      level_236: high - diff * 0.236,
+      level_382: high - diff * 0.382,
+      level_500: high - diff * 0.500,
+      level_618: high - diff * 0.618,
+      level_786: high - diff * 0.786,
+      level_100: low
+    };
+  },
+
+  // ========== CANDLE PATTERNS ==========
+  isDoji: function(open, high, low, close) {
+    const body = Math.abs(close - open);
+    const range = high - low;
+    return body / range < 0.1;
+  },
+
+  isHammer: function(open, high, low, close) {
+    const body = Math.abs(close - open);
+    const lowerShadow = Math.min(open, close) - low;
+    const upperShadow = high - Math.max(open, close);
+    return lowerShadow > body * 2 && upperShadow < body * 0.5;
+  },
+
+  isBullishEngulfing: function(candles, index) {
+    if (index < 1) return false;
+    const prev = candles[index - 1];
+    const curr = candles[index];
+    return prev.close < prev.open && 
+           curr.close > curr.open &&
+           curr.open < prev.close &&
+           curr.close > prev.open;
+  },
+
+  isBearishEngulfing: function(candles, index) {
+    if (index < 1) return false;
+    const prev = candles[index - 1];
+    const curr = candles[index];
+    return prev.close > prev.open && 
+           curr.close < curr.open &&
+           curr.open > prev.close &&
+           curr.close < prev.open;
+  },
+
+  isMorningStar: function(candles, index) {
+    if (index < 2) return false;
+    const c1 = candles[index - 2];
+    const c2 = candles[index - 1];
+    const c3 = candles[index];
+    return c1.close < c1.open && 
+           Math.abs(c2.close - c2.open) < Math.abs(c1.close - c1.open) * 0.3 &&
+           c3.close > c3.open &&
+           c3.close > (c1.open + c1.close) / 2;
+  },
+
+  isEveningStar: function(candles, index) {
+    if (index < 2) return false;
+    const c1 = candles[index - 2];
+    const c2 = candles[index - 1];
+    const c3 = candles[index];
+    return c1.close > c1.open && 
+           Math.abs(c2.close - c2.open) < Math.abs(c1.close - c1.open) * 0.3 &&
+           c3.close < c3.open &&
+           c3.close < (c1.open + c1.close) / 2;
+  },
+
+  isPinBar: function(open, high, low, close) {
+    const body = Math.abs(close - open);
+    const range = high - low;
+    const upperShadow = high - Math.max(open, close);
+    const lowerShadow = Math.min(open, close) - low;
+    return (upperShadow > body * 3 || lowerShadow > body * 3) && body / range < 0.3;
+  },
+
+  isInsideBar: function(candles, index) {
+    if (index < 1) return false;
+    const prev = candles[index - 1];
+    const curr = candles[index];
+    return curr.high < prev.high && curr.low > prev.low;
+  },
+
+  // ========== PRICE ACTION ==========
+  findSwingHigh: function(highs, period = 5) {
+    if (highs.length < period * 2 + 1) return null;
+    const center = highs.length - period - 1;
+    const centerValue = highs[center];
+    for (let i = center - period; i < center + period; i++) {
+      if (i !== center && highs[i] >= centerValue) return null;
+    }
+    return { index: center, value: centerValue };
+  },
+
+  findSwingLow: function(lows, period = 5) {
+    if (lows.length < period * 2 + 1) return null;
+    const center = lows.length - period - 1;
+    const centerValue = lows[center];
+    for (let i = center - period; i < center + period; i++) {
+      if (i !== center && lows[i] <= centerValue) return null;
+    }
+    return { index: center, value: centerValue };
+  },
+
+  isHigherHigh: function(highs) {
+    return highs.length >= 2 && highs[highs.length - 1] > highs[highs.length - 2];
+  },
+
+  isLowerLow: function(lows) {
+    return lows.length >= 2 && lows[lows.length - 1] < lows[lows.length - 2];
+  },
+
+  findSupportResistance: function(highs, lows, closes, lookback = 50, tolerance = 0.02) {
+    const levels = [];
+    for (let i = closes.length - lookback; i < closes.length; i++) {
+      const price = closes[i];
+      let found = false;
+      for (const level of levels) {
+        if (Math.abs(price - level.price) / level.price < tolerance) {
+          level.touches++;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        levels.push({ price, touches: 1 });
+      }
+    }
+    return levels.filter(l => l.touches >= 3).sort((a, b) => b.touches - a.touches);
   }
 };
 
@@ -957,7 +1172,7 @@ for (const [key, fn] of Object.entries(indicators)) {
   }
 }
 
-// 7. 커뮤니티 전략 기본 파라미터 설정 (모든 가능한 파라미터)
+// 7. 커뮤니티 전략 기본 파라미터 설정
 const communitySettings = {
   ...settings,
   
@@ -968,7 +1183,6 @@ const communitySettings = {
   maxPositionSize: settings.maxPositionSize || 10000000,
   
   // ========== RISK MANAGEMENT ==========
-  // Stop Loss & Take Profit
   stopLoss: settings.stopLoss || null,
   stopLossPercent: settings.stopLossPercent || null,
   stopLossPoints: settings.stopLossPoints || null,
@@ -979,23 +1193,20 @@ const communitySettings = {
   takeProfitPoints: settings.takeProfitPoints || null,
   takeProfitATR: settings.takeProfitATR || null,
   
-  // Trailing Stop
   trailingStop: settings.trailingStop || null,
   trailingStopPercent: settings.trailingStopPercent || null,
   trailingStopDistance: settings.trailingStopDistance || null,
   trailingStopTrigger: settings.trailingStopTrigger || null,
   
-  // Break Even
   breakEvenEnabled: settings.breakEvenEnabled || false,
   breakEvenTrigger: settings.breakEvenTrigger || null,
   breakEvenOffset: settings.breakEvenOffset || 0,
   
-  // Max Drawdown
   maxDrawdown: settings.maxDrawdown || 50,
   maxDailyLoss: settings.maxDailyLoss || null,
   maxConsecutiveLosses: settings.maxConsecutiveLosses || null,
   
-  // ========== PARTIAL CLOSE (부분 청산) ==========
+  // ========== PARTIAL CLOSE ==========
   partialCloseEnabled: settings.partialCloseEnabled || false,
   partialClosePercent: settings.partialClosePercent || 50,
   partialCloseTrigger: settings.partialCloseTrigger || null,
@@ -1003,7 +1214,7 @@ const communitySettings = {
   partialClose2Percent: settings.partialClose2Percent || 25,
   partialClose2Trigger: settings.partialClose2Trigger || null,
   
-  // ========== SCALING (분할 진입/청산) ==========
+  // ========== SCALING ==========
   scalingInEnabled: settings.scalingInEnabled || false,
   scalingInLevels: settings.scalingInLevels || 3,
   scalingInDistance: settings.scalingInDistance || null,
@@ -1052,7 +1263,6 @@ const communitySettings = {
   trendFilter: settings.trendFilter || null,
   priceFilter: settings.priceFilter || null,
   
-  // ATR (for Forex→Crypto conversion)
   atrPeriod: settings.atrPeriod || 14,
   atrMultiplier: settings.atrMultiplier || 2.0,
   
@@ -1079,11 +1289,9 @@ const communitySettings = {
   orderTimeout: settings.orderTimeout || null,
   requireConfirmation: settings.requireConfirmation || false,
   
-  // News & Events
   newsFilterEnabled: settings.newsFilterEnabled || false,
   newsAvoidMinutes: settings.newsAvoidMinutes || 30,
   
-  // Technical
   minCandlesRequired: settings.minCandlesRequired || 50,
   warmupPeriod: settings.warmupPeriod || 100
 };
@@ -1093,9 +1301,7 @@ eval(js_code);
 const backtestResult = runStrategy(convertedCandles, communitySettings);
 
 console.log('✅ Backtest complete');
-console.log('📊 ROI:', backtestResult.roi + '%');
-console.log('📊 Trades:', backtestResult.total_trades);
-
+    
 // ✅ 필수 필드 기본값 추가
 const normalizedResult = {
   trades: (backtestResult.trades || [])
