@@ -713,6 +713,44 @@ function calculateEMA(prices, period) {
   return ema;
 }
 
+function calculateBB(prices, period = 20, deviation = 2) {
+  const sma = calculateSMA(prices, period);
+  const slice = prices.slice(-period);
+  const variance = slice.reduce((sum, p) => sum + Math.pow(p - sma, 2), 0) / period;
+  const std = Math.sqrt(variance);
+  return {
+    upper: sma + deviation * std,
+    middle: sma,
+    lower: sma - deviation * std
+  };
+}
+
+function calculateMACD(prices, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+  const fastEMA = calculateEMA(prices, fastPeriod);
+  const slowEMA = calculateEMA(prices, slowPeriod);
+  const macd = fastEMA - slowEMA;
+  return { macd, signal: macd, histogram: 0 };
+}
+
+function calculateATR(highs, lows, closes, period = 14) {
+  if (highs.length < period + 1) return 0;
+  let tr = 0;
+  for (let i = Math.max(1, highs.length - period); i < highs.length; i++) {
+    const h = highs[i];
+    const l = lows[i];
+    const c = closes[i - 1];
+    tr += Math.max(h - l, Math.abs(h - c), Math.abs(l - c));
+  }
+  return tr / Math.min(period, highs.length - 1);
+}
+
+function calculateStochastic(highs, lows, closes, kPeriod = 14) {
+  const highest = Math.max(...highs.slice(-kPeriod));
+  const lowest = Math.min(...lows.slice(-kPeriod));
+  const k = ((closes[closes.length - 1] - lowest) / (highest - lowest)) * 100;
+  return { k, d: k };
+}
+
 // 7. 실행
 eval(js_code);
 const backtestResult = runStrategy(convertedCandles, settings);
