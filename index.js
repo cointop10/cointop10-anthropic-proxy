@@ -576,29 +576,6 @@ function convertTimeframe(candles, timeframe) {
 }
 
 
-function convertTimeframe(candles, timeframe) {
-  if (timeframe === "1m") return candles;
-  const intervals = { "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440 };
-  const minutes = intervals[timeframe];
-  if (!minutes) return candles;
-  const converted = [];
-  let i = 0;
-  while (i < candles.length) {
-    const chunk = candles.slice(i, i + minutes);
-    if (chunk.length === 0) break;
-    converted.push({
-      timestamp: chunk[0].timestamp,
-      open: chunk[0].open,
-      high: Math.max(...chunk.map((c) => c.high)),
-      low: Math.min(...chunk.map((c) => c.low)),
-      close: chunk[chunk.length - 1].close,
-      volume: chunk.reduce((sum, c) => sum + c.volume, 0)
-    });
-    i += minutes;
-  }
-  return converted;
-}
-__name(convertTimeframe, "convertTimeframe");
 function trendFollowingStrategy(candles, settings) {
   const {
     consecutiveCandles = 3,
@@ -636,7 +613,7 @@ function trendFollowingStrategy(candles, settings) {
     }[symbol] || 4;
     return Math.round(price * Math.pow(10, decimals)) / Math.pow(10, decimals);
   }
-  __name(roundPrice, "roundPrice");
+
   const ha = [];
   for (let i = 0; i < candles.length; i++) {
     const c = candles[i];
@@ -863,7 +840,7 @@ if (oppCount === 1 && takeProfitStep1Enabled) {
     symbol
   };
 }
-__name(trendFollowingStrategy, "trendFollowingStrategy");
+
 function contrarianStrategy(candles, settings) {
   const {
     consecutiveCandles = 3,
@@ -901,7 +878,7 @@ function contrarianStrategy(candles, settings) {
     }[symbol] || 4;
     return Math.round(price * Math.pow(10, decimals)) / Math.pow(10, decimals);
   }
-  __name(roundPrice, "roundPrice");
+
   const ha = [];
   for (let i = 0; i < candles.length; i++) {
     const c = candles[i];
@@ -1069,7 +1046,7 @@ if (oppCount === 1 && takeProfitStep1Enabled) {
     symbol
   };
 }
-__name(contrarianStrategy, "contrarianStrategy");
+
 function riskManagementStrategy(candles, settings) {
   const {
     baseStrategy = "trend_v1",
@@ -1101,7 +1078,7 @@ function riskManagementStrategy(candles, settings) {
     }[symbol] || 4;
     return Math.round(price * Math.pow(10, decimals)) / Math.pow(10, decimals);
   }
-  __name(roundPrice, "roundPrice");
+
   const ha = [];
   for (let i = 0; i < candles.length; i++) {
     const c = candles[i];
@@ -1281,7 +1258,6 @@ function riskManagementStrategy(candles, settings) {
     symbol
   };
 }
-__name(riskManagementStrategy, "riskManagementStrategy");
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
@@ -1297,22 +1273,43 @@ app.post('/api/backtest', async (req, res) => {
     console.log('📊 Symbol:', settings.symbol);
     console.log('📊 Period:', settings.startDate, '→', settings.endDate);
     
-    // 1. Workers API에서 js_code 가져오기
-    console.log('📡 Fetching strategy code...');
-    const strategyUrl = `https://cointop10-api.cointop10-com.workers.dev/api/strategy/${strategy_id}`;
-    const strategyRes = await fetch(strategyUrl);
-    
-    if (!strategyRes.ok) {
-      return res.status(404).json({ error: 'Strategy not found' });
-    }
-    
-    const { js_code } = await strategyRes.json();
-    
-    if (!js_code) {
-      return res.status(404).json({ error: 'Strategy has no code' });
-    }
-    
-    console.log('✅ Strategy code loaded');
+// 1. 전략 함수 결정 (회사 vs 커뮤니티)
+let runStrategy;
+
+if (['trend_v1', 'contrarian_v1', 'risk_v1'].includes(strategy_id)) {
+  // 회사 전략 - 하드코딩된 함수 사용
+  console.log('📡 Using company strategy:', strategy_id);
+  
+  if (strategy_id === 'trend_v1') {
+    runStrategy = trendFollowingStrategy;
+  } else if (strategy_id === 'contrarian_v1') {
+    runStrategy = contrarianStrategy;
+  } else if (strategy_id === 'risk_v1') {
+    runStrategy = riskManagementStrategy;
+  }
+  
+  console.log('✅ Company strategy loaded');
+  
+} else {
+  // 커뮤니티 전략 - Workers API에서 js_code 가져오기
+  console.log('📡 Fetching community strategy code...');
+  
+  const strategyUrl = `https://cointop10-api.cointop10-com.workers.dev/api/strategy/${strategy_id}`;
+  const strategyRes = await fetch(strategyUrl);
+  
+  if (!strategyRes.ok) {
+    return res.status(404).json({ error: 'Strategy not found' });
+  }
+  
+  const { js_code } = await strategyRes.json();
+  
+  if (!js_code) {
+    return res.status(404).json({ error: 'Strategy has no code' });
+  }
+  
+  runStrategy = eval(`(${js_code})`);
+  console.log('✅ Community strategy loaded');
+}
     
     // 2. R2에서 캔들 가져오기
     const key = `candles/${settings.market_type}/${settings.symbol}.csv`;
@@ -1360,9 +1357,8 @@ app.post('/api/backtest', async (req, res) => {
     
     console.log('✅ Converted to', settings.timeframe, ':', convertedCandles.length, 'candles');
     
-    // 6. 실행
-    const runStrategy = eval(`(${js_code})`);
-    const result = runStrategy(convertedCandles, settings);
+// 6. 실행 (runStrategy는 위에서 이미 정의됨)
+const result = runStrategy(convertedCandles, settings);
     
     console.log('✅ Backtest complete');
     console.log('📊 ROI:', result.roi + '%');
