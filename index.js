@@ -575,6 +575,714 @@ function convertTimeframe(candles, timeframe) {
   return result;
 }
 
+
+function convertTimeframe(candles, timeframe) {
+  if (timeframe === "1m") return candles;
+  const intervals = { "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440 };
+  const minutes = intervals[timeframe];
+  if (!minutes) return candles;
+  const converted = [];
+  let i = 0;
+  while (i < candles.length) {
+    const chunk = candles.slice(i, i + minutes);
+    if (chunk.length === 0) break;
+    converted.push({
+      timestamp: chunk[0].timestamp,
+      open: chunk[0].open,
+      high: Math.max(...chunk.map((c) => c.high)),
+      low: Math.min(...chunk.map((c) => c.low)),
+      close: chunk[chunk.length - 1].close,
+      volume: chunk.reduce((sum, c) => sum + c.volume, 0)
+    });
+    i += minutes;
+  }
+  return converted;
+}
+__name(convertTimeframe, "convertTimeframe");
+function trendFollowingStrategy(candles, settings) {
+  const {
+    consecutiveCandles = 3,
+    exitCandles = 2,
+    takeProfitPercent = 50,
+    stopLossOffset = 1,
+    volumeFilter = 1e4,
+    masterLongEnabled = true,
+    masterShortEnabled = true,
+    takeProfitStep1Enabled = true,
+    takeProfitStep2Enabled = true,
+    stopLossStep1Enabled = true,
+    initialBalance = 1e4,
+    symbol = "BTCUSDT",
+    leverage = 10,
+    equityPercent = 20,
+    compoundEnabled = false,
+    feePercent = 0.1,
+    maxPositionSize = 1e7
+  } = settings;
+  const coinMaxPosition = ["BTCUSDT", "ETHUSDT"].includes(symbol) ? 1e7 : 1e6;
+  const finalMaxPosition = Math.min(maxPositionSize, coinMaxPosition);
+  function roundPrice(price) {
+    const decimals = {
+      BTCUSDT: 1,
+      ETHUSDT: 2,
+      XRPUSDT: 4,
+      ADAUSDT: 4,
+      SOLUSDT: 2,
+      DOGEUSDT: 5,
+      BNBUSDT: 2,
+      AVAXUSDT: 3,
+      LINKUSDT: 3,
+      DOTUSDT: 3
+    }[symbol] || 4;
+    return Math.round(price * Math.pow(10, decimals)) / Math.pow(10, decimals);
+  }
+  __name(roundPrice, "roundPrice");
+  const ha = [];
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    if (c.volume < volumeFilter) continue;
+    const { open: o, high: h, low: l, close: cl } = c;
+    if (ha.length === 0) {
+      ha.push({ o, c: (o + h + l + cl) / 4, h, l, timestamp: c.timestamp, price: cl });
+    } else {
+      const prev = ha[ha.length - 1];
+      const haC = (o + h + l + cl) / 4;
+      const haO = (prev.o + prev.c) / 2;
+      const haH = Math.max(h, haO, haC);
+      const haL = Math.min(l, haO, haC);
+      ha.push({ 
+  o: haO, c: haC, h: haH, l: haL, 
+  timestamp: c.timestamp, 
+  price: cl,
+  realHigh: h,  // ← 추가!
+  realLow: l    // ← 추가!
+});
+    }
+  }
+  if (ha.length === 0) throw new Error("No valid candles");
+  let balance = initialBalance, peak = balance, maxDrawdown = 0;
+  let longTrades = 0, shortTrades = 0, winTrades = 0, lossTrades = 0;
+  let profitSum = 0, lossSum = 0, maxProfit = 0, maxLoss = 0, totalFee = 0;
+  let totalDuration = 0, maxDuration = 0;
+  let entryPrice = null, stopPrice = null, position = null, positionSize = 0;
+  let entryIdx = null, stopIdx = null, oppCount = 0;
+  const n = consecutiveCandles, m = exitCandles;
+  const trades = [];
+  const equityCurve = [{ timestamp: ha[0].timestamp, balance: initialBalance, equity: initialBalance, drawdown: 0 }];
+  for (let i = n - 1; i < ha.length; i++) {
+    let currentEquity = balance;
+    if (entryPrice !== null && position !== null) {
+      const currentPrice = ha[i].price;
+      const lev = settings.market_type === "futures" ? leverage : 1;
+      const unrealizedPnL = position === "long" ? (currentPrice - entryPrice) / entryPrice * positionSize * lev : (entryPrice - currentPrice) / entryPrice * positionSize * lev;
+      currentEquity = balance + unrealizedPnL;
+    }
+    if (currentEquity > peak) peak = currentEquity;
+    const currentDrawdown = (peak - currentEquity) / peak * 100;
+    equityCurve.push({
+      timestamp: ha[i].timestamp,
+      balance,
+      equity: currentEquity,
+      drawdown: currentDrawdown
+    });
+    if (currentEquity <= 0) {
+      if (entryPrice !== null && position !== null) {
+        const exitPrice = ha[i].price;
+        const lev = settings.market_type === "futures" ? leverage : 1;
+        const pnl = position === "long" ? (exitPrice - entryPrice) / entryPrice * positionSize * lev : (entryPrice - exitPrice) / entryPrice * positionSize * lev;
+        const entryFee = positionSize * lev * (feePercent / 100);
+        const exitNotional = positionSize * lev * (exitPrice / entryPrice);
+        const exitFee = exitNotional * (feePercent / 100);
+        const fee = entryFee + exitFee;
+        balance += pnl - fee;
+        if (balance < 0) balance = 0;
+        totalFee += fee;
+        const duration = i - entryIdx;
+        totalDuration += duration;
+        if (duration > maxDuration) maxDuration = duration;
+        lossTrades++;
+        lossSum += Math.abs(pnl);
+        if (pnl < maxLoss) maxLoss = pnl;
+        const dd = (peak - balance) / peak * 100;
+        if (dd > maxDrawdown) maxDrawdown = dd;
+        trades.push({
+          entry_time: ha[entryIdx].timestamp,
+          entry_price: entryPrice,
+          exit_time: ha[i].timestamp,
+          exit_price: exitPrice,
+          side: position.toUpperCase(),
+          pnl,
+          fee,
+          size: positionSize * lev,
+          duration,
+          order_type: "LIQUIDATION",
+          balance
+        });
+      }
+      balance = 0;
+      break;
+    }
+    if (entryPrice === null) {
+      if (stopPrice === null) {
+        const slice = ha.slice(i - n + 1, i);
+        const allGreen = slice.every((x) => x.c > x.o);
+        const allRed = slice.every((x) => x.c < x.o);
+if (masterLongEnabled && allGreen) {
+  stopPrice = roundPrice(ha[i].h);
+  position = settings.masterReverse ? "short" : "long";  // ← REVERSE
+  stopIdx = i;
+} else if (masterShortEnabled && allRed && settings.market_type === "futures") {
+  stopPrice = roundPrice(ha[i].l);
+  position = settings.masterReverse ? "long" : "short";  // ← REVERSE
+  stopIdx = i;
+}
+      } else {
+        const isBullish = ha[i].c > ha[i].o;
+        const isBearish = ha[i].c < ha[i].o;
+        if (position === "long" && isBearish || position === "short" && isBullish) {
+          stopPrice = null;
+          position = null;
+          stopIdx = null;
+          continue;
+        }
+        if (position === "long" && ha[i].realHigh >= stopPrice) {
+          entryPrice = stopPrice;
+          entryIdx = i;
+          longTrades++;
+          oppCount = 0;
+          const base = compoundEnabled ? balance : initialBalance;
+          const calculatedSize = Math.floor(base * (equityPercent / 100) / 100) * 100;
+          positionSize = Math.min(calculatedSize, finalMaxPosition);
+        } else if (position === "short" && ha[i].realLow <= stopPrice) {
+          entryPrice = stopPrice;
+          entryIdx = i;
+          shortTrades++;
+          oppCount = 0;
+          const base = compoundEnabled ? balance : initialBalance;
+          const calculatedSize = Math.floor(base * (equityPercent / 100) / 100) * 100;
+          positionSize = Math.min(calculatedSize, finalMaxPosition);
+        }
+      }
+    } else {
+      const isOpp = position === "long" && ha[i].c < ha[i].o || position === "short" && ha[i].c > ha[i].o;
+      if (isOpp) oppCount++;
+      else oppCount = 0;
+      let exitPrice = null;
+if (oppCount === 1 && takeProfitStep1Enabled) {
+  const range = ha[i].realHigh - ha[i].realLow;
+  exitPrice = position === "long" ? roundPrice(ha[i].realHigh - range * (100 - takeProfitPercent) / 100) : roundPrice(ha[i].realLow + range * takeProfitPercent / 100);
+} else if (oppCount >= m && takeProfitStep2Enabled) {
+  exitPrice = roundPrice(ha[i].price);
+}
+      if (exitPrice === null && stopLossStep1Enabled) {
+        const slIdx = stopIdx - stopLossOffset;
+        if (slIdx >= 0 && slIdx < ha.length) {
+          const slPrice = position === "long" ? ha[slIdx].realLow : ha[slIdx].realHigh;
+          if (position === "long" && ha[i].realLow <= slPrice || position === "short" && ha[i].realHigh >= slPrice) {
+            exitPrice = roundPrice(slPrice);
+          }
+        }
+      }
+      if (exitPrice !== null) {
+        const lev = settings.market_type === "futures" ? leverage : 1;
+        const pnl = position === "long" ? (exitPrice - entryPrice) / entryPrice * positionSize * lev : (entryPrice - exitPrice) / entryPrice * positionSize * lev;
+        const entryFee = positionSize * lev * (feePercent / 100);
+        const exitNotional = positionSize * lev * (exitPrice / entryPrice);
+        const exitFee = exitNotional * (feePercent / 100);
+        const fee = entryFee + exitFee;
+        balance += pnl - fee;
+        if (balance < 0) balance = 0;
+        totalFee += fee;
+        const duration = i - entryIdx;
+        totalDuration += duration;
+        if (duration > maxDuration) maxDuration = duration;
+        if (pnl > 0) {
+          winTrades++;
+          profitSum += pnl;
+          if (pnl > maxProfit) maxProfit = pnl;
+        } else {
+          lossTrades++;
+          lossSum += Math.abs(pnl);
+          if (pnl < maxLoss) maxLoss = pnl;
+        }
+        if (balance > peak) peak = balance;
+        const dd = (peak - balance) / peak * 100;
+        if (dd > maxDrawdown) maxDrawdown = dd;
+        trades.push({
+          entry_time: ha[entryIdx].timestamp,
+          entry_price: entryPrice,
+          exit_time: ha[i].timestamp,
+          exit_price: exitPrice,
+          side: position.toUpperCase(),
+          pnl,
+          fee,
+          size: positionSize * lev,
+          duration,
+          order_type: (() => {
+  const isLong = position === "long";
+  if (settings.masterReverse) {
+    return isLong ? "BUY LIMIT" : "SELL LIMIT";
+  }
+  return isLong ? "BUY STOP" : "SELL STOP";
+})(),
+          balance
+        });
+        entryPrice = null;
+        stopPrice = null;
+        position = null;
+        positionSize = 0;
+        entryIdx = null;
+        stopIdx = null;
+        oppCount = 0;
+      }
+    }
+  }
+  const totalTrades = longTrades + shortTrades;
+  const roi = (balance - initialBalance) / initialBalance * 100;
+  const winRate = totalTrades > 0 ? winTrades / totalTrades * 100 : 0;
+  return {
+    trades,
+    equity_curve: equityCurve,
+    roi: parseFloat(roi.toFixed(2)),
+    mdd: parseFloat(maxDrawdown.toFixed(2)),
+    win_rate: parseFloat(winRate.toFixed(2)),
+    total_trades: totalTrades,
+    long_trades: longTrades,
+    short_trades: shortTrades,
+    winning_trades: winTrades,
+    losing_trades: lossTrades,
+    max_profit: parseFloat(maxProfit.toFixed(2)),
+    max_loss: parseFloat(maxLoss.toFixed(2)),
+    avg_profit: winTrades > 0 ? parseFloat((profitSum / winTrades).toFixed(2)) : 0,
+    avg_loss: lossTrades > 0 ? parseFloat((lossSum / lossTrades).toFixed(2)) : 0,
+    avg_duration: totalTrades > 0 ? Math.round(totalDuration / totalTrades) : 0,
+    max_duration: maxDuration,
+    total_fee: parseFloat(totalFee.toFixed(2)),
+    final_balance: parseFloat(balance.toFixed(2)),
+    initial_balance: initialBalance,
+    symbol
+  };
+}
+__name(trendFollowingStrategy, "trendFollowingStrategy");
+function contrarianStrategy(candles, settings) {
+  const {
+    consecutiveCandles = 3,
+    exitCandles = 2,
+    takeProfitPercent = 50,
+    stopLossOffset = 1,
+    volumeFilter = 1e4,
+    masterLongEnabled = true,
+    masterShortEnabled = true,
+    takeProfitStep1Enabled = true,
+    takeProfitStep2Enabled = true,
+    stopLossStep1Enabled = true,
+    initialBalance = 1e4,
+    symbol = "BTCUSDT",
+    leverage = 10,
+    equityPercent = 20,
+    compoundEnabled = false,
+    feePercent = 0.1,
+    maxPositionSize = 1e7
+  } = settings;
+  const coinMaxPosition = ["BTCUSDT", "ETHUSDT"].includes(symbol) ? 1e7 : 1e6;
+  const finalMaxPosition = Math.min(maxPositionSize, coinMaxPosition);
+  function roundPrice(price) {
+    const decimals = {
+      BTCUSDT: 1,
+      ETHUSDT: 2,
+      XRPUSDT: 4,
+      ADAUSDT: 4,
+      SOLUSDT: 2,
+      DOGEUSDT: 5,
+      BNBUSDT: 2,
+      AVAXUSDT: 3,
+      LINKUSDT: 3,
+      DOTUSDT: 3
+    }[symbol] || 4;
+    return Math.round(price * Math.pow(10, decimals)) / Math.pow(10, decimals);
+  }
+  __name(roundPrice, "roundPrice");
+  const ha = [];
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    if (c.volume < volumeFilter) continue;
+    const { open: o, high: h, low: l, close: cl } = c;
+    if (ha.length === 0) {
+      ha.push({ o, c: (o + h + l + cl) / 4, h, l, timestamp: c.timestamp, price: cl });
+    } else {
+      const prev = ha[ha.length - 1];
+      const haC = (o + h + l + cl) / 4;
+      const haO = (prev.o + prev.c) / 2;
+      const haH = Math.max(h, haO, haC);
+      const haL = Math.min(l, haO, haC);
+      ha.push({ 
+  o: haO, c: haC, h: haH, l: haL, 
+  timestamp: c.timestamp, 
+  price: cl,
+  realHigh: h,  // ← 추가!
+  realLow: l    // ← 추가!
+});
+    }
+  }
+  if (ha.length === 0) throw new Error("No valid candles");
+  let balance = initialBalance, peak = balance, maxDrawdown = 0;
+  let longTrades = 0, shortTrades = 0, winTrades = 0, lossTrades = 0;
+  let profitSum = 0, lossSum = 0, maxProfit = 0, maxLoss = 0, totalFee = 0;
+  let totalDuration = 0, maxDuration = 0;
+  let entryPrice = null, position = null, positionSize = 0;
+  let entryIdx = null;
+  const n = consecutiveCandles, m = exitCandles;
+  const trades = [];
+  const equityCurve = [{ timestamp: ha[0].timestamp, balance: initialBalance, equity: initialBalance, drawdown: 0 }];
+  for (let i = n - 1; i < ha.length; i++) {
+    let currentEquity = balance;
+    if (entryPrice !== null && position !== null) {
+      const currentPrice = ha[i].price;
+      const lev = settings.market_type === "futures" ? leverage : 1;
+      const unrealizedPnL = position === "long" ? (currentPrice - entryPrice) / entryPrice * positionSize * lev : (entryPrice - currentPrice) / entryPrice * positionSize * lev;
+      currentEquity = balance + unrealizedPnL;
+    }
+    if (currentEquity > peak) peak = currentEquity;
+    const currentDrawdown = (peak - currentEquity) / peak * 100;
+    equityCurve.push({
+      timestamp: ha[i].timestamp,
+      balance,
+      equity: currentEquity,
+      drawdown: currentDrawdown
+    });
+    if (entryPrice === null) {
+      const slice = ha.slice(i - n + 1, i + 1);
+      const allGreen = slice.every((x) => x.c > x.o);
+      const allRed = slice.every((x) => x.c < x.o);
+      if (masterShortEnabled && allGreen && settings.market_type === "futures") {
+        entryPrice = roundPrice(ha[i].h);
+        position = settings.masterReverse ? "long" : "short";  // ← REVERSE
+        entryIdx = i;
+        shortTrades++;
+        const base = compoundEnabled ? balance : initialBalance;
+        const calculatedSize = Math.floor(base * (equityPercent / 100) / 100) * 100;
+        positionSize = Math.min(calculatedSize, finalMaxPosition);
+      } else if (masterLongEnabled && allRed) {
+        entryPrice = roundPrice(ha[i].l);
+        position = settings.masterReverse ? "short" : "long";  // ← REVERSE
+        entryIdx = i;
+        longTrades++;
+        const base = compoundEnabled ? balance : initialBalance;
+        const calculatedSize = Math.floor(base * (equityPercent / 100) / 100) * 100;
+        positionSize = Math.min(calculatedSize, finalMaxPosition);
+      }
+    } else {
+      const isOpp = position === "long" && ha[i].c < ha[i].o || position === "short" && ha[i].c > ha[i].o;
+      let oppCount = 0;
+      for (let j = i; j > entryIdx && j >= 0; j--) {
+        const isOppCandle = position === "long" && ha[j].c < ha[j].o || position === "short" && ha[j].c > ha[j].o;
+        if (isOppCandle) oppCount++;
+        else break;
+      }
+      let exitPrice = null;
+if (oppCount === 1 && takeProfitStep1Enabled) {
+  const range = ha[i].realHigh - ha[i].realLow;
+  exitPrice = position === "long" ? roundPrice(ha[i].realHigh - range * (100 - takeProfitPercent) / 100) : roundPrice(ha[i].realLow + range * takeProfitPercent / 100);
+} else if (oppCount >= m && takeProfitStep2Enabled) {
+  exitPrice = roundPrice(ha[i].price);
+}
+      if (exitPrice === null && stopLossStep1Enabled) {
+        const slPrice = position === "long" ? ha[entryIdx].l : ha[entryIdx].h;
+        if (position === "long" && ha[i].l <= slPrice || position === "short" && ha[i].h >= slPrice) {
+          exitPrice = roundPrice(slPrice);
+        }
+      }
+      if (exitPrice !== null) {
+        const lev = settings.market_type === "futures" ? leverage : 1;
+        const pnl = position === "long" ? (exitPrice - entryPrice) / entryPrice * positionSize * lev : (entryPrice - exitPrice) / entryPrice * positionSize * lev;
+        const entryFee = positionSize * lev * (feePercent / 100);
+        const exitNotional = positionSize * lev * (exitPrice / entryPrice);
+        const exitFee = exitNotional * (feePercent / 100);
+        const fee = entryFee + exitFee;
+        balance += pnl - fee;
+        if (balance < 0) balance = 0;
+        totalFee += fee;
+        const duration = i - entryIdx;
+        totalDuration += duration;
+        if (duration > maxDuration) maxDuration = duration;
+        if (pnl > 0) {
+          winTrades++;
+          profitSum += pnl;
+          if (pnl > maxProfit) maxProfit = pnl;
+        } else {
+          lossTrades++;
+          lossSum += Math.abs(pnl);
+          if (pnl < maxLoss) maxLoss = pnl;
+        }
+        if (balance > peak) peak = balance;
+        const dd = (peak - balance) / peak * 100;
+        if (dd > maxDrawdown) maxDrawdown = dd;
+        trades.push({
+          entry_time: ha[entryIdx].timestamp,
+          entry_price: entryPrice,
+          exit_time: ha[i].timestamp,
+          exit_price: exitPrice,
+          side: position.toUpperCase(),
+          pnl,
+          fee,
+          size: positionSize * lev,
+          duration,
+          order_type: (() => {
+  const isLong = position === "long";
+  if (settings.masterReverse) {
+    return isLong ? "BUY STOP" : "SELL STOP";
+  }
+  return isLong ? "BUY LIMIT" : "SELL LIMIT";
+})(),
+          balance
+        });
+        entryPrice = null;
+        position = null;
+        positionSize = 0;
+        entryIdx = null;
+      }
+    }
+  }
+  const totalTrades = longTrades + shortTrades;
+  const roi = (balance - initialBalance) / initialBalance * 100;
+  const winRate = totalTrades > 0 ? winTrades / totalTrades * 100 : 0;
+  return {
+    trades,
+    equity_curve: equityCurve,
+    roi: parseFloat(roi.toFixed(2)),
+    mdd: parseFloat(maxDrawdown.toFixed(2)),
+    win_rate: parseFloat(winRate.toFixed(2)),
+    total_trades: totalTrades,
+    long_trades: longTrades,
+    short_trades: shortTrades,
+    winning_trades: winTrades,
+    losing_trades: lossTrades,
+    max_profit: parseFloat(maxProfit.toFixed(2)),
+    max_loss: parseFloat(maxLoss.toFixed(2)),
+    avg_profit: winTrades > 0 ? parseFloat((profitSum / winTrades).toFixed(2)) : 0,
+    avg_loss: lossTrades > 0 ? parseFloat((lossSum / lossTrades).toFixed(2)) : 0,
+    avg_duration: totalTrades > 0 ? Math.round(totalDuration / totalTrades) : 0,
+    max_duration: maxDuration,
+    total_fee: parseFloat(totalFee.toFixed(2)),
+    final_balance: parseFloat(balance.toFixed(2)),
+    initial_balance: initialBalance,
+    symbol
+  };
+}
+__name(contrarianStrategy, "contrarianStrategy");
+function riskManagementStrategy(candles, settings) {
+  const {
+    baseStrategy = "trend_v1",
+    takeProfitPercent = 1,
+    stopLossPercent = 0.5,
+    initialBalance = 1e4,
+    symbol = "BTCUSDT",
+    leverage = 10,
+    equityPercent = 20,
+    compoundEnabled = false,
+    feePercent = 0.1,
+    maxPositionSize = 1e7,
+    volumeFilter = 0
+  } = settings;
+  const coinMaxPosition = ["BTCUSDT", "ETHUSDT"].includes(symbol) ? 1e7 : 1e6;
+  const finalMaxPosition = Math.min(maxPositionSize, coinMaxPosition);
+  function roundPrice(price) {
+    const decimals = {
+      BTCUSDT: 1,
+      ETHUSDT: 2,
+      XRPUSDT: 4,
+      ADAUSDT: 4,
+      SOLUSDT: 2,
+      DOGEUSDT: 5,
+      BNBUSDT: 2,
+      AVAXUSDT: 3,
+      LINKUSDT: 3,
+      DOTUSDT: 3
+    }[symbol] || 4;
+    return Math.round(price * Math.pow(10, decimals)) / Math.pow(10, decimals);
+  }
+  __name(roundPrice, "roundPrice");
+  const ha = [];
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    if (c.volume < volumeFilter) continue;
+    const { open: o, high: h, low: l, close: cl } = c;
+    if (ha.length === 0) {
+      ha.push({ o, c: (o + h + l + cl) / 4, h, l, timestamp: c.timestamp, price: cl });
+    } else {
+      const prev = ha[ha.length - 1];
+      const haC = (o + h + l + cl) / 4;
+      const haO = (prev.o + prev.c) / 2;
+      const haH = Math.max(h, haO, haC);
+      const haL = Math.min(l, haO, haC);
+      ha.push({ 
+  o: haO, c: haC, h: haH, l: haL, 
+  timestamp: c.timestamp, 
+  price: cl,
+  realHigh: h,  // ← 추가!
+  realLow: l    // ← 추가!
+});
+    }
+  }
+  if (ha.length === 0) throw new Error("No valid candles");
+  let balance = initialBalance, peak = balance, maxDrawdown = 0;
+  let longTrades = 0, shortTrades = 0, winTrades = 0, lossTrades = 0;
+  let profitSum = 0, lossSum = 0, maxProfit = 0, maxLoss = 0, totalFee = 0;
+  let totalDuration = 0, maxDuration = 0;
+  let entryPrice = null, position = null, positionSize = 0, entryIdx = null;
+  const trades = [];
+  const equityCurve = [{ timestamp: ha[0].timestamp, balance: initialBalance, equity: initialBalance, drawdown: 0 }];
+  for (let i = 0; i < ha.length; i++) {
+    let currentEquity = balance;
+    if (entryPrice !== null && position !== null) {
+      const currentPrice = ha[i].price;
+      const lev = settings.market_type === "futures" ? leverage : 1;
+      const unrealizedPnL = position === "long" ? (currentPrice - entryPrice) / entryPrice * positionSize * lev : (entryPrice - currentPrice) / entryPrice * positionSize * lev;
+      currentEquity = balance + unrealizedPnL;
+    }
+    if (currentEquity > peak) peak = currentEquity;
+    const currentDrawdown = (peak - currentEquity) / peak * 100;
+    equityCurve.push({
+      timestamp: ha[i].timestamp,
+      balance,
+      equity: currentEquity,
+      drawdown: currentDrawdown
+    });
+    if (balance <= 0) break;
+    if (entryPrice === null) {
+      if (baseStrategy === "trend_v1") {
+        if (i >= 2) {
+          const slice = ha.slice(i - 2, i + 1);
+          const allGreen = slice.every((x) => x.c > x.o);
+          const allRed = slice.every((x) => x.c < x.o);
+          if (allGreen && ha[i].h) {
+            entryPrice = roundPrice(ha[i].h);
+            position = settings.masterReverse ? "short" : "long";  // ← REVERSE
+            entryIdx = i;
+            longTrades++;
+            const base = compoundEnabled ? balance : initialBalance;
+            const calculatedSize = Math.floor(base * (equityPercent / 100) / 100) * 100;
+            positionSize = Math.min(calculatedSize, finalMaxPosition);
+          } else if (allRed && settings.market_type === "futures" && ha[i].l) {
+            entryPrice = roundPrice(ha[i].l);
+            position = settings.masterReverse ? "long" : "short";  // ← REVERSE
+            entryIdx = i;
+            shortTrades++;
+            const base = compoundEnabled ? balance : initialBalance;
+            const calculatedSize = Math.floor(base * (equityPercent / 100) / 100) * 100;
+            positionSize = Math.min(calculatedSize, finalMaxPosition);
+          }
+        }
+      } else if (baseStrategy === "contrarian_v1") {
+        if (i >= 2) {
+          const slice = ha.slice(i - 2, i + 1);
+          const allGreen = slice.every((x) => x.c > x.o);
+          const allRed = slice.every((x) => x.c < x.o);
+          if (allGreen && settings.market_type === "futures" && ha[i].h) {
+            entryPrice = roundPrice(ha[i].h);
+            position = settings.masterReverse ? "long" : "short";  // ← REVERSE
+            entryIdx = i;
+            shortTrades++;
+            const base = compoundEnabled ? balance : initialBalance;
+            const calculatedSize = Math.floor(base * (equityPercent / 100) / 100) * 100;
+            positionSize = Math.min(calculatedSize, finalMaxPosition);
+          } else if (allRed && ha[i].l) {
+            entryPrice = roundPrice(ha[i].l);
+            position = settings.masterReverse ? "short" : "long";  // ← REVERSE
+            entryIdx = i;
+            longTrades++;
+            const base = compoundEnabled ? balance : initialBalance;
+            const calculatedSize = Math.floor(base * (equityPercent / 100) / 100) * 100;
+            positionSize = Math.min(calculatedSize, finalMaxPosition);
+          }
+        }
+      }
+    } else {
+      const currentPrice = ha[i].price;
+      const tpPrice = position === "long" ? entryPrice * (1 + takeProfitPercent / 100) : entryPrice * (1 - takeProfitPercent / 100);
+      const slPrice = position === "long" ? entryPrice * (1 - stopLossPercent / 100) : entryPrice * (1 + stopLossPercent / 100);
+      let exitPrice = null;
+      if (position === "long") {
+        if (currentPrice >= tpPrice) exitPrice = roundPrice(tpPrice);
+        else if (currentPrice <= slPrice) exitPrice = roundPrice(slPrice);
+      } else {
+        if (currentPrice <= tpPrice) exitPrice = roundPrice(tpPrice);
+        else if (currentPrice >= slPrice) exitPrice = roundPrice(slPrice);
+      }
+      if (exitPrice !== null) {
+        const lev = settings.market_type === "futures" ? leverage : 1;
+        const pnl = position === "long" ? (exitPrice - entryPrice) / entryPrice * positionSize * lev : (entryPrice - exitPrice) / entryPrice * positionSize * lev;
+        const entryFee = positionSize * lev * (feePercent / 100);
+        const exitNotional = positionSize * lev * (exitPrice / entryPrice);
+        const exitFee = exitNotional * (feePercent / 100);
+        const fee = entryFee + exitFee;
+        balance += pnl - fee;
+        if (balance < 0) balance = 0;
+        totalFee += fee;
+        const duration = i - entryIdx;
+        totalDuration += duration;
+        if (duration > maxDuration) maxDuration = duration;
+        if (pnl > 0) {
+          winTrades++;
+          profitSum += pnl;
+          if (pnl > maxProfit) maxProfit = pnl;
+        } else {
+          lossTrades++;
+          lossSum += Math.abs(pnl);
+          if (pnl < maxLoss) maxLoss = pnl;
+        }
+        if (balance > peak) peak = balance;
+        const dd = (peak - balance) / peak * 100;
+        if (dd > maxDrawdown) maxDrawdown = dd;
+        const orderType = baseStrategy === "trend_v1" ? position === "long" ? "BUY STOP" : "SELL STOP" : position === "long" ? "BUY LIMIT" : "SELL LIMIT";
+        trades.push({
+          entry_time: ha[entryIdx].timestamp,
+          entry_price: entryPrice,
+          exit_time: ha[i].timestamp,
+          exit_price: exitPrice,
+          side: position.toUpperCase(),
+          pnl,
+          fee,
+          size: positionSize * lev,
+          duration,
+          order_type: orderType,
+          balance
+        });
+        entryPrice = null;
+        position = null;
+        positionSize = 0;
+        entryIdx = null;
+      }
+    }
+  }
+  const totalTrades = longTrades + shortTrades;
+  const roi = (balance - initialBalance) / initialBalance * 100;
+  const winRate = totalTrades > 0 ? winTrades / totalTrades * 100 : 0;
+  return {
+    trades,
+    equity_curve: equityCurve,
+    roi: parseFloat(roi.toFixed(2)),
+    mdd: parseFloat(maxDrawdown.toFixed(2)),
+    win_rate: parseFloat(winRate.toFixed(2)),
+    total_trades: totalTrades,
+    long_trades: longTrades,
+    short_trades: shortTrades,
+    winning_trades: winTrades,
+    losing_trades: lossTrades,
+    max_profit: parseFloat(maxProfit.toFixed(2)),
+    max_loss: parseFloat(maxLoss.toFixed(2)),
+    avg_profit: winTrades > 0 ? parseFloat((profitSum / winTrades).toFixed(2)) : 0,
+    avg_loss: lossTrades > 0 ? parseFloat((lossSum / lossTrades).toFixed(2)) : 0,
+    avg_duration: totalTrades > 0 ? Math.round(totalDuration / totalTrades) : 0,
+    max_duration: maxDuration,
+    total_fee: parseFloat(totalFee.toFixed(2)),
+    final_balance: parseFloat(balance.toFixed(2)),
+    initial_balance: initialBalance,
+    symbol
+  };
+}
+__name(riskManagementStrategy, "riskManagementStrategy");
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Proxy running on port ${PORT}`);
