@@ -957,9 +957,140 @@ for (const [key, fn] of Object.entries(indicators)) {
   }
 }
 
-// 7. 실행
+// 7. 커뮤니티 전략 기본 파라미터 설정 (모든 가능한 파라미터)
+const communitySettings = {
+  ...settings,
+  
+  // ========== POSITION SIZING ==========
+  leverage: settings.leverage || 10,
+  equityPercent: settings.equityPercent || 10,
+  compoundEnabled: settings.compoundEnabled || false,
+  maxPositionSize: settings.maxPositionSize || 10000000,
+  
+  // ========== RISK MANAGEMENT ==========
+  // Stop Loss & Take Profit
+  stopLoss: settings.stopLoss || null,
+  stopLossPercent: settings.stopLossPercent || null,
+  stopLossPoints: settings.stopLossPoints || null,
+  stopLossATR: settings.stopLossATR || null,
+  
+  takeProfit: settings.takeProfit || null,
+  takeProfitPercent: settings.takeProfitPercent || null,
+  takeProfitPoints: settings.takeProfitPoints || null,
+  takeProfitATR: settings.takeProfitATR || null,
+  
+  // Trailing Stop
+  trailingStop: settings.trailingStop || null,
+  trailingStopPercent: settings.trailingStopPercent || null,
+  trailingStopDistance: settings.trailingStopDistance || null,
+  trailingStopTrigger: settings.trailingStopTrigger || null,
+  
+  // Break Even
+  breakEvenEnabled: settings.breakEvenEnabled || false,
+  breakEvenTrigger: settings.breakEvenTrigger || null,
+  breakEvenOffset: settings.breakEvenOffset || 0,
+  
+  // Max Drawdown
+  maxDrawdown: settings.maxDrawdown || 50,
+  maxDailyLoss: settings.maxDailyLoss || null,
+  maxConsecutiveLosses: settings.maxConsecutiveLosses || null,
+  
+  // ========== PARTIAL CLOSE (부분 청산) ==========
+  partialCloseEnabled: settings.partialCloseEnabled || false,
+  partialClosePercent: settings.partialClosePercent || 50,
+  partialCloseTrigger: settings.partialCloseTrigger || null,
+  partialClose2Enabled: settings.partialClose2Enabled || false,
+  partialClose2Percent: settings.partialClose2Percent || 25,
+  partialClose2Trigger: settings.partialClose2Trigger || null,
+  
+  // ========== SCALING (분할 진입/청산) ==========
+  scalingInEnabled: settings.scalingInEnabled || false,
+  scalingInLevels: settings.scalingInLevels || 3,
+  scalingInDistance: settings.scalingInDistance || null,
+  
+  scalingOutEnabled: settings.scalingOutEnabled || false,
+  scalingOutLevels: settings.scalingOutLevels || 3,
+  scalingOutDistance: settings.scalingOutDistance || null,
+  
+  // ========== MARTINGALE & RECOVERY ==========
+  martingaleEnabled: settings.martingaleEnabled || false,
+  martingaleMultiplier: settings.martingaleMultiplier || 2.0,
+  maxMartingaleLevel: settings.maxMartingaleLevel || 5,
+  martingaleOnLoss: settings.martingaleOnLoss !== false,
+  
+  antiMartingaleEnabled: settings.antiMartingaleEnabled || false,
+  antiMartingaleMultiplier: settings.antiMartingaleMultiplier || 1.5,
+  
+  recoveryEnabled: settings.recoveryEnabled || false,
+  recoveryTarget: settings.recoveryTarget || 100,
+  recoveryMethod: settings.recoveryMethod || 'grid',
+  
+  // ========== POSITION LIMITS ==========
+  maxPositions: settings.maxPositions || 1,
+  maxLongPositions: settings.maxLongPositions || null,
+  maxShortPositions: settings.maxShortPositions || null,
+  maxDailyTrades: settings.maxDailyTrades || null,
+  maxWeeklyTrades: settings.maxWeeklyTrades || null,
+  
+  // ========== DIRECTION CONTROL ==========
+  masterLongEnabled: settings.masterLongEnabled !== false,
+  masterShortEnabled: settings.masterShortEnabled !== false,
+  masterReverse: settings.masterReverse || false,
+  
+  // ========== TIME FILTERS ==========
+  tradingHours: settings.tradingHours || null,
+  sessionStart: settings.sessionStart || null,
+  sessionEnd: settings.sessionEnd || null,
+  avoidWeekends: settings.avoidWeekends || false,
+  avoidMonday: settings.avoidMonday || false,
+  avoidFriday: settings.avoidFriday || false,
+  
+  // ========== FILTERS ==========
+  volumeFilter: settings.volumeFilter || 0,
+  volatilityFilter: settings.volatilityFilter || null,
+  spreadFilter: settings.spreadFilter || null,
+  trendFilter: settings.trendFilter || null,
+  priceFilter: settings.priceFilter || null,
+  
+  // ATR (for Forex→Crypto conversion)
+  atrPeriod: settings.atrPeriod || 14,
+  atrMultiplier: settings.atrMultiplier || 2.0,
+  
+  // ========== HEDGING & GRID ==========
+  hedgingEnabled: settings.hedgingEnabled || false,
+  hedgingDistance: settings.hedgingDistance || null,
+  hedgingMultiplier: settings.hedgingMultiplier || 1.0,
+  
+  gridTradingEnabled: settings.gridTradingEnabled || false,
+  gridLevels: settings.gridLevels || 5,
+  gridDistance: settings.gridDistance || null,
+  
+  // ========== PYRAMIDING ==========
+  pyramidingEnabled: settings.pyramidingEnabled || false,
+  pyramidingLevels: settings.pyramidingLevels || 3,
+  pyramidingDistance: settings.pyramidingDistance || null,
+  pyramidingMultiplier: settings.pyramidingMultiplier || 1.0,
+  
+  // ========== FEE ==========
+  feePercent: settings.feePercent || (settings.market_type === 'spot' ? 0.1 : 0.05),
+  
+  // ========== OTHERS ==========
+  slippage: settings.slippage || 0,
+  orderTimeout: settings.orderTimeout || null,
+  requireConfirmation: settings.requireConfirmation || false,
+  
+  // News & Events
+  newsFilterEnabled: settings.newsFilterEnabled || false,
+  newsAvoidMinutes: settings.newsAvoidMinutes || 30,
+  
+  // Technical
+  minCandlesRequired: settings.minCandlesRequired || 50,
+  warmupPeriod: settings.warmupPeriod || 100
+};
+
+// 8. 실행
 eval(js_code);
-const backtestResult = runStrategy(convertedCandles, settings);
+const backtestResult = runStrategy(convertedCandles, communitySettings);
 
 console.log('✅ Backtest complete');
 console.log('📊 ROI:', backtestResult.roi + '%');
