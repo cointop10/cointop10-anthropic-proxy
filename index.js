@@ -653,6 +653,8 @@ app.post('/api/backtest', async (req, res) => {
     console.log('✅ Converted to', settings.timeframe, ':', convertedCandles.length, 'candles');
     
     // 6. 실행
+    console.log('🔍 js_code 길이:', js_code.length);
+console.log('🔍 js_code 시작 100자:', js_code.substring(0, 100));
     const runStrategy = eval(`(${js_code})`);
     const result = runStrategy(convertedCandles, settings);
     
