@@ -379,6 +379,24 @@ if (buySignal && !position) {
 2. ✅ Calculate USDT amount first, then divide by price
 3. ✅ Position size = COIN amount (e.g., 0.235 BTC)
 4. ✅ Fee calculated on USDT notional value
+5. ✅ **CRITICAL:** Round USDT position to nearest $100
+
+**Position sizing with $100 rounding:**
+\`\`\`javascript
+const equity = settings.equityPercent || 10;
+const lev = settings.market_type === 'futures' ? settings.leverage : 1;
+
+// Round to nearest $100
+const rawUSDT = balance * (equity / 100) * lev;
+const positionUSDT = Math.floor(rawUSDT / 100) * 100;
+const positionSize = positionUSDT / entryPrice;
+
+// Example:
+// balance = $10,000, equity = 10%, lev = 10x
+// rawUSDT = 10,000 × 0.1 × 10 = $10,000
+// positionUSDT = floor(10,000 / 100) × 100 = $10,000 ✅
+// positionSize = 10,000 / 42,466.9 = 0.2355 BTC
+\`\`\`
 
 ## CRITICAL - LOT SIZE EXCLUSION
 
