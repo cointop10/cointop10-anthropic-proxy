@@ -1363,21 +1363,12 @@ try {
     throw new Error('Invalid backtest result: missing trades array');
   }
 
-console.log('✅ Backtest complete');
+  console.log('✅ Backtest complete');
   console.log('📊 ROI:', backtestResult.roi + '%');
   console.log('📊 Trades:', backtestResult.total_trades);
 
-} catch (evalError) {
-  console.error('❌ Strategy execution error:', evalError);
-  return res.status(500).json({ 
-    error: 'Strategy execution failed: ' + evalError.message,
-    stack: evalError.stack,
-    code_preview: js_code.substring(0, 500)
-  });
-}
-    
-// ✅ 필수 필드 기본값 추가
-const normalizedResult = {
+  // ✅ 필수 필드 기본값 추가
+  const normalizedResult = {
   trades: (backtestResult.trades || [])
     .filter(t => t.balance && t.balance > 0)
     .map(t => {
@@ -1423,10 +1414,19 @@ const normalizedResult = {
   initial_balance: settings.initialBalance || 10000,
   symbol: settings.symbol,
   timeframe: settings.timeframe,
-  ...backtestResult  // 나머지 필드들도 포함
-};
+...backtestResult  // 나머지 필드들도 포함
+  };
 
-res.json(normalizedResult);
+  res.json(normalizedResult);
+
+} catch (evalError) {
+  console.error('❌ Strategy execution error:', evalError);
+  return res.status(500).json({ 
+    error: 'Strategy execution failed: ' + evalError.message,
+    stack: evalError.stack,
+    code_preview: js_code.substring(0, 500)
+  });
+}
     
   } catch (error) {
     console.error('❌ Error:', error);
