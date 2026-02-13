@@ -317,13 +317,68 @@ if (rsi < settings.rsiOversold && closes[i] < bb.lower) {
 }
 \`\`\`
 
-## 5. FOREX → CRYPTO CONVERSION
-- \`Lots\` → Position size in USDT (1 lot = 100 USDT minimum, scale from settings.equityPercent)
+## 5. FOREX → CRYPTO CONVERSION & POSITION SIZING
+
+**CRITICAL - Position Sizing Formula:**
+\`\`\`javascript
+// Calculate position size in BASE ASSET (e.g., BTC, ETH)
+const equity = settings.equityPercent || 10;  // Default 10%
+const lev = settings.market_type === 'futures' ? settings.leverage : 1;
+const positionUSDT = balance * (equity / 100) * lev;
+const positionSize = positionUSDT / entryPrice;  // Convert USDT → Coin
+
+// Example:
+// balance = $10,000
+// equity = 10%
+// leverage = 10x
+// entryPrice = $42,500
+// → positionUSDT = 10,000 × 0.1 × 10 = $10,000
+// → positionSize = 10,000 / 42,500 = 0.235 BTC
+\`\`\`
+
+**DO NOT USE:**
+- ❌ \`balance * 0.95 * lev\` (uses 95% of entire balance!)
+- ❌ \`LotSize\` from MQ code (forex-specific)
+- ❌ Fixed position sizes
+
+**MUST USE:**
+- ✅ \`settings.equityPercent\` (% of balance per trade)
+- ✅ \`settings.leverage\` (for futures)
+- ✅ Dynamic calculation based on current balance
+
+**Other conversions:**
 - \`Points/Pips\` → Price difference (BTC: $1, ETH: $0.01, etc)
 - \`OrderSend()\` → Simulated trades with entry/exit tracking
 - \`AccountBalance()\` → \`balance\` variable (start from settings.initialBalance)
-- Leverage: Use \`settings.market_type === 'futures' ? settings.leverage : 1\`
 - Fees: \`settings.feePercent\` (default 0.05% for futures, 0.1% for spot)
+
+## POSITION SIZING - MANDATORY IMPLEMENTATION
+
+**Every strategy MUST calculate position size as:**
+\`\`\`javascript
+function calculatePositionSize(balance, entryPrice, settings) {
+  const equity = settings.equityPercent || 10;
+  const lev = settings.market_type === 'futures' ? settings.leverage : 1;
+  const positionUSDT = balance * (equity / 100) * lev;
+  const positionSize = positionUSDT / entryPrice;
+  return positionSize;
+}
+
+// Usage in buy signal:
+if (buySignal && !position) {
+  entryPrice = currentPrice;
+  positionSize = calculatePositionSize(balance, entryPrice, settings);
+  const fee = (balance * (equity / 100) * lev) * (settings.feePercent / 100);
+  balance -= fee;
+  position = 'long';
+}
+\`\`\`
+
+**Key points:**
+1. ✅ Use \`settings.equityPercent\` (NOT hardcoded 95%)
+2. ✅ Calculate USDT amount first, then divide by price
+3. ✅ Position size = COIN amount (e.g., 0.235 BTC)
+4. ✅ Fee calculated on USDT notional value
 
 ## CRITICAL - LOT SIZE EXCLUSION
 
