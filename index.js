@@ -509,6 +509,39 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'anthropic-proxy' });
 });
 
+// 임시 업로드 API (CSV 파일 업로드용)
+app.post('/api/upload-candle', (req, res) => {
+  try {
+    const { market_type, symbol, csv_text } = req.body;
+    
+    if (!market_type || !symbol || !csv_text) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    // 디렉토리 생성
+    const dir = path.join(DATA_PATH, market_type);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    
+    // 파일 저장
+    const filePath = path.join(dir, `${symbol}.csv`);
+    fs.writeFileSync(filePath, csv_text, 'utf-8');
+    
+    console.log(`✅ Uploaded: ${market_type}/${symbol}.csv (${csv_text.length} bytes)`);
+    
+    res.json({ 
+      success: true, 
+      message: `Uploaded ${symbol}`,
+      path: filePath
+    });
+    
+  } catch (error) {
+    console.error('❌ Upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 타임프레임 변환 함수
 function convertTimeframe(candles, timeframe) {
   if (timeframe === '1m') return candles;
