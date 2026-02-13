@@ -423,11 +423,20 @@ trades.push({
   side: position.toUpperCase(),
   pnl: profitLoss,
   fee: totalFee,
-  size: positionSize,
+  size: positionSize,  // COIN 개수 (USDT 아님!)
   duration: i - entryIdx,
   order_type: "BUY STOP" | "SELL STOP" | "BUY LIMIT" | "SELL LIMIT",
   balance: currentBalance
 });
+\`\`\`
+
+**CRITICAL: Stop trading if balance <= 0:**
+\`\`\`javascript
+// Exit loop if bankrupt
+if (balance <= 0) {
+  console.log('Bankrupt at candle', i);
+  break;
+}
 \`\`\`
 
 ## 9. EQUITY CURVE
