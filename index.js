@@ -1296,7 +1296,12 @@ const communitySettings = {
   warmupPeriod: settings.warmupPeriod || 100
 };
 
-// 8. 실행
+// 8. communitySettings를 전역 변수로 노출
+for (const [key, value] of Object.entries(communitySettings)) {
+  global[key] = value;
+}
+
+// 9. 실행
 eval(js_code);
 const backtestResult = runStrategy(convertedCandles, communitySettings);
 
