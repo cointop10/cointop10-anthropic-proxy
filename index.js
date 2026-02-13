@@ -655,7 +655,8 @@ app.post('/api/backtest', async (req, res) => {
     // 6. 실행
     console.log('🔍 js_code 길이:', js_code.length);
 console.log('🔍 js_code 시작 100자:', js_code.substring(0, 100));
-    const runStrategy = eval(`(${js_code})`);
+    eval(js_code);
+const result = runStrategy(convertedCandles, settings);
     const result = runStrategy(convertedCandles, settings);
     
     console.log('✅ Backtest complete');
