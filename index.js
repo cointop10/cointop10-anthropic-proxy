@@ -6,7 +6,8 @@ const path = require('path');
 const app = express();
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '100mb' }));  // ← 10mb → 100mb
+app.use(express.text({ limit: '100mb' }));
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const DATA_PATH = '/data/candles';
