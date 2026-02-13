@@ -693,7 +693,15 @@ console.log('📊 Trades:', backtestResult.total_trades);
 
 // ✅ 필수 필드 기본값 추가
 const normalizedResult = {
-  trades: backtestResult.trades || [],
+  trades: (backtestResult.trades || []).map(t => {
+    const coinSize = t.size || 0;
+    const usdtSize = t.entry_price && t.size ? t.size * t.entry_price : 0;
+    return {
+      ...t,
+      coin_size: parseFloat(coinSize.toFixed(8)),
+      usdt_size: parseFloat(usdtSize.toFixed(2))
+    };
+  }),
   equity_curve: backtestResult.equity_curve || [],
   roi: parseFloat(backtestResult.roi) || 0,
   mdd: parseFloat(backtestResult.mdd) || 0,
