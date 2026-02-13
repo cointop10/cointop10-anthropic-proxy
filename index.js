@@ -1491,3 +1491,4 @@ const usdtSize = t.entry_price && coinSize ? coinSize * t.entry_price : 0;
     });
   }
 });
+
