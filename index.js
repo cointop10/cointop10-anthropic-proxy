@@ -1368,13 +1368,13 @@ try {
   console.log('📊 Trades:', backtestResult.total_trades);
 
   // ✅ 필수 필드 기본값 추가
-  const normalizedResult = {
+const normalizedResult = {
   trades: (backtestResult.trades || [])
     .filter(t => t.balance && t.balance > 0)
     .map(t => {
-      // 커뮤니티 전략은 size가 이미 코인 개수!
-      const coinSize = t.size || 0;
-      const usdtSize = t.entry_price && coinSize ? coinSize * t.entry_price : 0;
+      // 커뮤니티 전략: size는 USDT 값!
+      const usdtSize = t.size || 0;
+      const coinSize = t.entry_price && usdtSize ? usdtSize / t.entry_price : 0;
       
       // order_type에 side 정보 추가
       let orderType = t.order_type || 'MARKET';
