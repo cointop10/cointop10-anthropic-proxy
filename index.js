@@ -1301,11 +1301,32 @@ for (const [key, value] of Object.entries(communitySettings)) {
   global[key] = value;
 }
 
-// 9. 실행
-eval(js_code);
-const backtestResult = runStrategy(convertedCandles, communitySettings);
+// 9. 실행 (에러 핸들링)
+try {
+  eval(js_code);
+  
+  if (typeof runStrategy !== 'function') {
+    throw new Error('runStrategy function not found in strategy code');
+  }
+  
+  const backtestResult = runStrategy(convertedCandles, communitySettings);
+  
+  if (!backtestResult || !backtestResult.trades) {
+    throw new Error('Invalid backtest result: missing trades array');
+  }
 
 console.log('✅ Backtest complete');
+  console.log('📊 ROI:', backtestResult.roi + '%');
+  console.log('📊 Trades:', backtestResult.total_trades);
+
+} catch (evalError) {
+  console.error('❌ Strategy execution error:', evalError);
+  return res.status(500).json({ 
+    error: 'Strategy execution failed: ' + evalError.message,
+    stack: evalError.stack,
+    code_preview: js_code.substring(0, 500)
+  });
+}
     
 // ✅ 필수 필드 기본값 추가
 const normalizedResult = {
