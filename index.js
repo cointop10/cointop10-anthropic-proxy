@@ -489,15 +489,48 @@ Begin conversion now.`
     const responseText = data.content?.[0]?.text || '';
     console.log('🔵 Response length:', responseText.length);
     
-    // JSON 파싱 (```json 제거)
-    let result;
-    try {
-      const cleanText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      result = JSON.parse(cleanText);
-    } catch (parseError) {
-      console.log('⚠️ JSON parse failed, returning as js_code only');
-      result = { js_code: responseText, parameters: {} };
+// JSON 파싱 (Markdown 제거 + 코드 블록 추출)
+let result;
+try {
+  // 1차: 마크다운 제거
+  let cleanText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  
+  // JSON 파싱 시도
+  result = JSON.parse(cleanText);
+  
+} catch (parseError) {
+  console.log('⚠️ JSON parse failed, extracting code blocks...');
+  
+  // 2차: 코드 블록 추출
+  let jsCode = responseText;
+  
+  // "```javascript" 블록 추출
+  const jsMatch = responseText.match(/```javascript\n([\s\S]*?)\n```/);
+  if (jsMatch) {
+    jsCode = jsMatch[1];
+  } else {
+    // "```" 블록 추출 (언어 명시 없음)
+    const codeMatch = responseText.match(/```\n([\s\S]*?)\n```/);
+    if (codeMatch) {
+      jsCode = codeMatch[1];
+    } else {
+      // function runStrategy로 시작하는 부분 추출
+      const functionMatch = responseText.match(/(function runStrategy[\s\S]*)/);
+      if (functionMatch) {
+        jsCode = functionMatch[1];
+      }
     }
+  }
+  
+  // 앞뒤 설명 텍스트 제거
+  jsCode = jsCode
+    .replace(/^Here's.*?:\s*/i, '')
+    .replace(/^The.*?:\s*/i, '')
+    .replace(/^This.*?:\s*/i, '')
+    .trim();
+  
+  result = { js_code: jsCode, parameters: {} };
+}
     
     console.log('✅ Success');
     console.log('- Code length:', result.js_code?.length);
@@ -633,13 +666,28 @@ app.post('/api/backtest', async (req, res) => {
       return res.status(404).json({ error: 'Strategy not found' });
     }
     
-    const { js_code } = await strategyRes.json();
-    
-    if (!js_code) {
-      return res.status(404).json({ error: 'Strategy has no code' });
-    }
-    
-    console.log('✅ Strategy code loaded');
+let { js_code } = await strategyRes.json();
+
+if (!js_code) {
+  return res.status(404).json({ error: 'Strategy has no code' });
+}
+
+// 코드 정제 (Markdown 제거)
+js_code = js_code
+  .replace(/^Here's.*?:\s*/i, '')
+  .replace(/^The.*?:\s*/i, '')
+  .replace(/^This.*?:\s*/i, '')
+  .replace(/```javascript\n?/g, '')
+  .replace(/```json\n?/g, '')
+  .replace(/```\n?/g, '')
+  .trim();
+
+// function runStrategy로 시작하는지 확인
+if (!js_code.includes('function runStrategy')) {
+  return res.status(400).json({ error: 'Invalid strategy code: missing runStrategy function' });
+}
+
+console.log('✅ Strategy code loaded and cleaned');
     
 // 2. Volume에서 캔들 가져오기
 // 파일명: futures_BTCUSDT.csv 또는 BTCUSDT.csv 모두 시도
