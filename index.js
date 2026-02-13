@@ -683,15 +683,41 @@ if (!fs.existsSync(filePath)) {
     
     console.log('✅ Converted to', settings.timeframe, ':', convertedCandles.length, 'candles');
     
-    // 6. 실행
-    eval(js_code);
-    const backtestResult = runStrategy(convertedCandles, settings);  // ← result 대신 backtestResult!
-    
-    console.log('✅ Backtest complete');
-    console.log('📊 ROI:', backtestResult.roi + '%');
-    console.log('📊 Trades:', backtestResult.total_trades);
-    
-    res.json(backtestResult);  // ← 여기도!
+// 6. 실행
+eval(js_code);
+const backtestResult = runStrategy(convertedCandles, settings);
+
+console.log('✅ Backtest complete');
+console.log('📊 ROI:', backtestResult.roi + '%');
+console.log('📊 Trades:', backtestResult.total_trades);
+
+// ✅ 필수 필드 기본값 추가
+const normalizedResult = {
+  trades: backtestResult.trades || [],
+  equity_curve: backtestResult.equity_curve || [],
+  roi: parseFloat(backtestResult.roi) || 0,
+  mdd: parseFloat(backtestResult.mdd) || 0,
+  win_rate: parseFloat(backtestResult.win_rate) || 0,
+  total_trades: backtestResult.total_trades || 0,
+  long_trades: backtestResult.long_trades || 0,
+  short_trades: backtestResult.short_trades || 0,
+  winning_trades: backtestResult.winning_trades || 0,
+  losing_trades: backtestResult.losing_trades || 0,
+  max_profit: parseFloat(backtestResult.max_profit) || 0,
+  max_loss: parseFloat(backtestResult.max_loss) || 0,
+  avg_profit: parseFloat(backtestResult.avg_profit) || 0,
+  avg_loss: parseFloat(backtestResult.avg_loss) || 0,
+  avg_duration: backtestResult.avg_duration || 0,
+  max_duration: backtestResult.max_duration || 0,
+  total_fee: parseFloat(backtestResult.total_fee) || 0,
+  final_balance: parseFloat(backtestResult.final_balance) || settings.initialBalance || 10000,
+  initial_balance: settings.initialBalance || 10000,
+  symbol: settings.symbol,
+  timeframe: settings.timeframe,
+  ...backtestResult  // 나머지 필드들도 포함
+};
+
+res.json(normalizedResult);
     
   } catch (error) {
     console.error('❌ Error:', error);
