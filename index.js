@@ -1,11 +1,23 @@
 const express = require('express');
 const cors = require('cors');
+const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
+
 const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+
+// R2 클라이언트 초기화
+const r2Client = new S3Client({
+  region: 'auto',
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
+});
 
 app.post('/api/convert-mq', async (req, res) => {
   try {
@@ -505,6 +517,64 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'anthropic-proxy' });
 });
 
+// 타임프레임 변환 함수
+function convertTimeframe(candles, timeframe) {
+  if (timeframe === '1m') return candles;
+  
+  const intervals = { 
+    '5m': 5, 
+    '15m': 15, 
+    '30m': 30, 
+    '1h': 60, 
+    '4h': 240, 
+    '1d': 1440 
+  };
+  
+  const targetMinutes = intervals[timeframe];
+  if (!targetMinutes) return candles;
+  
+  const targetMs = targetMinutes * 60 * 1000;
+  const result = [];
+  
+  let currentBucket = [];
+  let bucketStart = null;
+  
+  for (const candle of candles) {
+    const bucketTimestamp = Math.floor(candle.timestamp / targetMs) * targetMs;
+    
+    if (bucketStart !== bucketTimestamp) {
+      if (currentBucket.length > 0) {
+        result.push({
+          timestamp: bucketStart,
+          open: currentBucket[0].open,
+          high: Math.max(...currentBucket.map(c => c.high)),
+          low: Math.min(...currentBucket.map(c => c.low)),
+          close: currentBucket[currentBucket.length - 1].close,
+          volume: currentBucket.reduce((sum, c) => sum + c.volume, 0)
+        });
+      }
+      
+      bucketStart = bucketTimestamp;
+      currentBucket = [];
+    }
+    
+    currentBucket.push(candle);
+  }
+  
+  if (currentBucket.length > 0) {
+    result.push({
+      timestamp: bucketStart,
+      open: currentBucket[0].open,
+      high: Math.max(...currentBucket.map(c => c.high)),
+      low: Math.min(...currentBucket.map(c => c.low)),
+      close: currentBucket[currentBucket.length - 1].close,
+      volume: currentBucket.reduce((sum, c) => sum + c.volume, 0)
+    });
+  }
+  
+  return result;
+}
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Proxy running on port ${PORT}`);
@@ -512,19 +582,91 @@ app.listen(PORT, '0.0.0.0', () => {
 
 app.post('/api/backtest', async (req, res) => {
   try {
-    const { js_code, candles, settings } = req.body;
+    const { strategy_id, settings } = req.body;
     
-    console.log('🔵 Backtest execution');
-    console.log('Candles:', candles.length);
+    console.log('🔵 Community backtest start');
+    console.log('📊 Strategy:', strategy_id);
+    console.log('📊 Symbol:', settings.symbol);
+    console.log('📊 Period:', settings.startDate, '→', settings.endDate);
     
+    // 1. Workers API에서 js_code 가져오기
+    console.log('📡 Fetching strategy code...');
+    const strategyUrl = `https://cointop10-api.cointop10-com.workers.dev/api/strategy/${strategy_id}`;
+    const strategyRes = await fetch(strategyUrl);
+    
+    if (!strategyRes.ok) {
+      return res.status(404).json({ error: 'Strategy not found' });
+    }
+    
+    const { js_code } = await strategyRes.json();
+    
+    if (!js_code) {
+      return res.status(404).json({ error: 'Strategy has no code' });
+    }
+    
+    console.log('✅ Strategy code loaded');
+    
+    // 2. R2에서 캔들 가져오기
+    const key = `candles/${settings.market_type}/${settings.symbol}.csv`;
+    console.log('📡 Fetching candles from R2:', key);
+    
+    const command = new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: key,
+    });
+    
+    const r2Response = await r2Client.send(command);
+    const csvText = await r2Response.Body.transformToString();
+    
+    console.log('✅ Candles loaded from R2');
+    
+    // 3. CSV 파싱
+    const lines = csvText.split('\n').filter(line => line.trim());
+    lines.shift(); // 헤더 제거
+    
+    const allCandles = lines.map(line => {
+      const [timestamp, open, high, low, close, volume] = line.split(',');
+      return {
+        timestamp: parseInt(timestamp),
+        open: parseFloat(open),
+        high: parseFloat(high),
+        low: parseFloat(low),
+        close: parseFloat(close),
+        volume: parseFloat(volume)
+      };
+    });
+    
+    console.log('✅ Parsed:', allCandles.length, 'candles');
+    
+    // 4. 날짜 필터링
+    const startTs = new Date(settings.startDate).getTime();
+    const endTs = new Date(settings.endDate).getTime();
+    const filteredCandles = allCandles.filter(c => 
+      c.timestamp >= startTs && c.timestamp <= endTs
+    );
+    
+    console.log('✅ Filtered:', filteredCandles.length, 'candles');
+    
+    // 5. 타임프레임 변환
+    const convertedCandles = convertTimeframe(filteredCandles, settings.timeframe);
+    
+    console.log('✅ Converted to', settings.timeframe, ':', convertedCandles.length, 'candles');
+    
+    // 6. 실행
     const runStrategy = eval(`(${js_code})`);
-    const result = runStrategy(candles, settings);
+    const result = runStrategy(convertedCandles, settings);
     
-    console.log('✅ Trades:', result.total_trades);
+    console.log('✅ Backtest complete');
+    console.log('📊 ROI:', result.roi + '%');
+    console.log('📊 Trades:', result.total_trades);
+    
     res.json(result);
     
   } catch (error) {
     console.error('❌ Error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      error: error.message,
+      stack: error.stack 
+    });
   }
 });
