@@ -683,7 +683,45 @@ if (!fs.existsSync(filePath)) {
     
     console.log('✅ Converted to', settings.timeframe, ':', convertedCandles.length, 'candles');
     
-// 6. 표준 지표 함수 정의
+// 6. 표준 지표 함수 정의 (MT4/MT5 전체)
+
+// === MOVING AVERAGES ===
+function calculateSMA(prices, period) {
+  const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
+  return sum / period;
+}
+
+function calculateEMA(prices, period) {
+  const k = 2 / (period + 1);
+  let ema = prices[0];
+  for (let i = 1; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+function calculateSMMA(prices, period) {
+  if (prices.length < period) return prices[prices.length - 1];
+  let sum = 0;
+  for (let i = 0; i < period; i++) {
+    sum += prices[i];
+  }
+  let smma = sum / period;
+  for (let i = period; i < prices.length; i++) {
+    smma = (smma * (period - 1) + prices[i]) / period;
+  }
+  return smma;
+}
+
+function calculateLWMA(prices, period) {
+  const slice = prices.slice(-period);
+  const weights = Array.from({length: period}, (_, i) => i + 1);
+  const weightSum = weights.reduce((a, b) => a + b, 0);
+  const lwma = slice.reduce((sum, p, i) => sum + p * weights[i], 0) / weightSum;
+  return lwma;
+}
+
+// === OSCILLATORS ===
 function calculateRSI(prices, period = 14) {
   if (prices.length < period + 1) return 50;
   let gains = 0, losses = 0;
@@ -699,30 +737,11 @@ function calculateRSI(prices, period = 14) {
   return 100 - (100 / (1 + rs));
 }
 
-function calculateSMA(prices, period) {
-  const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
-  return sum / period;
-}
-
-function calculateEMA(prices, period) {
-  const k = 2 / (period + 1);
-  let ema = prices[0];
-  for (let i = 1; i < prices.length; i++) {
-    ema = prices[i] * k + ema * (1 - k);
-  }
-  return ema;
-}
-
-function calculateBB(prices, period = 20, deviation = 2) {
-  const sma = calculateSMA(prices, period);
-  const slice = prices.slice(-period);
-  const variance = slice.reduce((sum, p) => sum + Math.pow(p - sma, 2), 0) / period;
-  const std = Math.sqrt(variance);
-  return {
-    upper: sma + deviation * std,
-    middle: sma,
-    lower: sma - deviation * std
-  };
+function calculateStochastic(highs, lows, closes, kPeriod = 14, dPeriod = 3) {
+  const highest = Math.max(...highs.slice(-kPeriod));
+  const lowest = Math.min(...lows.slice(-kPeriod));
+  const k = ((closes[closes.length - 1] - lowest) / (highest - lowest)) * 100;
+  return { k, d: k };
 }
 
 function calculateMACD(prices, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
@@ -730,6 +749,23 @@ function calculateMACD(prices, fastPeriod = 12, slowPeriod = 26, signalPeriod = 
   const slowEMA = calculateEMA(prices, slowPeriod);
   const macd = fastEMA - slowEMA;
   return { macd, signal: macd, histogram: 0 };
+}
+
+function calculateCCI(highs, lows, closes, period = 20) {
+  const tp = (highs[highs.length - 1] + lows[lows.length - 1] + closes[closes.length - 1]) / 3;
+  const sma = calculateSMA(closes, period);
+  const meanDev = closes.slice(-period).reduce((sum, p) => sum + Math.abs(p - sma), 0) / period;
+  return meanDev === 0 ? 0 : (tp - sma) / (0.015 * meanDev);
+}
+
+function calculateMomentum(prices, period = 14) {
+  return prices[prices.length - 1] - prices[prices.length - 1 - period];
+}
+
+function calculateWilliamsR(highs, lows, closes, period = 14) {
+  const highest = Math.max(...highs.slice(-period));
+  const lowest = Math.min(...lows.slice(-period));
+  return ((highest - closes[closes.length - 1]) / (highest - lowest)) * -100;
 }
 
 function calculateATR(highs, lows, closes, period = 14) {
@@ -744,11 +780,121 @@ function calculateATR(highs, lows, closes, period = 14) {
   return tr / Math.min(period, highs.length - 1);
 }
 
-function calculateStochastic(highs, lows, closes, kPeriod = 14) {
-  const highest = Math.max(...highs.slice(-kPeriod));
-  const lowest = Math.min(...lows.slice(-kPeriod));
-  const k = ((closes[closes.length - 1] - lowest) / (highest - lowest)) * 100;
-  return { k, d: k };
+function calculateRVI(opens, closes, highs, lows, period = 10) {
+  const num = closes[closes.length - 1] - opens[opens.length - 1];
+  const den = highs[highs.length - 1] - lows[lows.length - 1];
+  return den === 0 ? 0 : num / den;
+}
+
+// === TREND ===
+function calculateBB(prices, period = 20, deviation = 2) {
+  const sma = calculateSMA(prices, period);
+  const slice = prices.slice(-period);
+  const variance = slice.reduce((sum, p) => sum + Math.pow(p - sma, 2), 0) / period;
+  const std = Math.sqrt(variance);
+  return {
+    upper: sma + deviation * std,
+    middle: sma,
+    lower: sma - deviation * std
+  };
+}
+
+function calculateEnvelopes(prices, period = 14, deviation = 0.1) {
+  const ma = calculateSMA(prices, period);
+  return {
+    upper: ma * (1 + deviation),
+    lower: ma * (1 - deviation)
+  };
+}
+
+function calculateSAR(highs, lows, closes, acceleration = 0.02, maximum = 0.2) {
+  const isUptrend = closes[closes.length - 1] > closes[closes.length - 2];
+  return isUptrend ? Math.min(...lows.slice(-5)) : Math.max(...highs.slice(-5));
+}
+
+function calculateIchimoku(highs, lows, tenkan = 9, kijun = 26, senkouB = 52) {
+  const tenkanSen = (Math.max(...highs.slice(-tenkan)) + Math.min(...lows.slice(-tenkan))) / 2;
+  const kijunSen = (Math.max(...highs.slice(-kijun)) + Math.min(...lows.slice(-kijun))) / 2;
+  const senkouA = (tenkanSen + kijunSen) / 2;
+  const senkouSpanB = (Math.max(...highs.slice(-senkouB)) + Math.min(...lows.slice(-senkouB))) / 2;
+  return { tenkan: tenkanSen, kijun: kijunSen, spanA: senkouA, spanB: senkouSpanB };
+}
+
+function calculateADX(highs, lows, closes, period = 14) {
+  const atr = calculateATR(highs, lows, closes, period);
+  return Math.min(100, atr / closes[closes.length - 1] * 100);
+}
+
+// === VOLUMES ===
+function calculateOBV(closes, volumes) {
+  let obv = 0;
+  for (let i = 1; i < closes.length; i++) {
+    if (closes[i] > closes[i - 1]) obv += volumes[i];
+    else if (closes[i] < closes[i - 1]) obv -= volumes[i];
+  }
+  return obv;
+}
+
+function calculateAD(highs, lows, closes, volumes) {
+  let ad = 0;
+  for (let i = 0; i < closes.length; i++) {
+    const clv = ((closes[i] - lows[i]) - (highs[i] - closes[i])) / (highs[i] - lows[i]);
+    ad += clv * volumes[i];
+  }
+  return ad;
+}
+
+function calculateMFI(highs, lows, closes, volumes, period = 14) {
+  let posFlow = 0, negFlow = 0;
+  for (let i = Math.max(1, closes.length - period); i < closes.length; i++) {
+    const tp = (highs[i] + lows[i] + closes[i]) / 3;
+    const mf = tp * volumes[i];
+    if (closes[i] > closes[i - 1]) posFlow += mf;
+    else negFlow += mf;
+  }
+  const mfr = posFlow / negFlow;
+  return 100 - (100 / (1 + mfr));
+}
+
+// === BILL WILLIAMS ===
+function calculateAO(highs, lows) {
+  const medianPrice = (highs[highs.length - 1] + lows[lows.length - 1]) / 2;
+  const sma5 = calculateSMA(highs.map((h, i) => (h + lows[i]) / 2), 5);
+  const sma34 = calculateSMA(highs.map((h, i) => (h + lows[i]) / 2), 34);
+  return sma5 - sma34;
+}
+
+function calculateAC(highs, lows) {
+  const ao = calculateAO(highs, lows);
+  const aoSma = calculateSMA([ao], 5);
+  return ao - aoSma;
+}
+
+function calculateAlligator(highs, lows, closes) {
+  const median = (highs[highs.length - 1] + lows[lows.length - 1]) / 2;
+  return {
+    jaw: calculateSMMA([median], 13),
+    teeth: calculateSMMA([median], 8),
+    lips: calculateSMMA([median], 5)
+  };
+}
+
+function calculateFractals(highs, lows) {
+  const len = highs.length;
+  if (len < 5) return { up: null, down: null };
+  const upFractal = highs[len - 3] > highs[len - 5] && highs[len - 3] > highs[len - 4] && 
+                    highs[len - 3] > highs[len - 2] && highs[len - 3] > highs[len - 1];
+  const downFractal = lows[len - 3] < lows[len - 5] && lows[len - 3] < lows[len - 4] && 
+                      lows[len - 3] < lows[len - 2] && lows[len - 3] < lows[len - 1];
+  return { up: upFractal ? highs[len - 3] : null, down: downFractal ? lows[len - 3] : null };
+}
+
+function calculateGator(highs, lows, closes) {
+  const alligator = calculateAlligator(highs, lows, closes);
+  return {
+    upper: Math.abs(alligator.jaw - alligator.teeth),
+    lower: Math.abs(alligator.teeth - alligator.lips)
+  };
 }
 
 // 7. 실행
@@ -762,8 +908,9 @@ console.log('📊 Trades:', backtestResult.total_trades);
 // ✅ 필수 필드 기본값 추가
 const normalizedResult = {
 trades: (backtestResult.trades || []).map(t => {
+  // 커뮤니티 전략은 size가 이미 코인 개수!
   const coinSize = t.size || 0;
-  const usdtSize = t.entry_price && t.size ? t.size * t.entry_price : 0;
+  const usdtSize = t.entry_price && t.size ? coinSize * t.entry_price : 0;
   
   // order_type에 side 정보 추가
   let orderType = t.order_type || 'MARKET';
