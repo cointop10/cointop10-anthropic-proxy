@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 
@@ -8,16 +9,7 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-
-// R2 클라이언트 초기화
-const r2Client = new S3Client({
-  region: 'auto',
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
-});
+const DATA_PATH = '/data/candles';
 
 app.post('/api/convert-mq', async (req, res) => {
   try {
@@ -606,19 +598,17 @@ app.post('/api/backtest', async (req, res) => {
     
     console.log('✅ Strategy code loaded');
     
-    // 2. R2에서 캔들 가져오기
-    const key = `candles/${settings.market_type}/${settings.symbol}.csv`;
-    console.log('📡 Fetching candles from R2:', key);
+    // 2. Volume에서 캔들 가져오기
+    const filePath = path.join(DATA_PATH, settings.market_type, `${settings.symbol}.csv`);
+    console.log('📡 Reading candles from Volume:', filePath);
     
-    const command = new GetObjectCommand({
-      Bucket: process.env.R2_BUCKET_NAME,
-      Key: key,
-    });
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: `Candle file not found: ${settings.symbol}` });
+    }
     
-    const r2Response = await r2Client.send(command);
-    const csvText = await r2Response.Body.transformToString();
+    const csvText = fs.readFileSync(filePath, 'utf-8');
     
-    console.log('✅ Candles loaded from R2');
+    console.log('✅ Candles loaded from Volume');
     
     // 3. CSV 파싱
     const lines = csvText.split('\n').filter(line => line.trim());
