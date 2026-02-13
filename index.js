@@ -897,6 +897,55 @@ function calculateGator(highs, lows, closes) {
   };
 }
 
+// === MISSING INDICATORS ===
+function calculateAMA(prices, period = 10, fastPeriod = 2, slowPeriod = 30) {
+  const er = Math.abs(prices[prices.length - 1] - prices[prices.length - 1 - period]) / 
+             prices.slice(-period).reduce((sum, p, i, arr) => i > 0 ? sum + Math.abs(p - arr[i-1]) : sum, 0);
+  const fastSC = 2 / (fastPeriod + 1);
+  const slowSC = 2 / (slowPeriod + 1);
+  const ssc = er * (fastSC - slowSC) + slowSC;
+  const c = ssc * ssc;
+  return prices[prices.length - 1] * c + (prices[prices.length - 2] || prices[prices.length - 1]) * (1 - c);
+}
+
+function calculateStdDev(prices, period = 20) {
+  const sma = calculateSMA(prices, period);
+  const slice = prices.slice(-period);
+  const variance = slice.reduce((sum, p) => sum + Math.pow(p - sma, 2), 0) / period;
+  return Math.sqrt(variance);
+}
+
+function calculateDeMarker(highs, lows, period = 14) {
+  let deMax = 0, deMin = 0;
+  for (let i = Math.max(1, highs.length - period); i < highs.length; i++) {
+    const dh = highs[i] > highs[i - 1] ? highs[i] - highs[i - 1] : 0;
+    const dl = lows[i] < lows[i - 1] ? lows[i - 1] - lows[i] : 0;
+    deMax += dh;
+    deMin += dl;
+  }
+  return deMin === 0 ? 100 : (deMax / (deMax + deMin)) * 100;
+}
+
+function calculateBearsPower(closes, highs, lows, period = 13) {
+  const ema = calculateEMA(closes, period);
+  return lows[lows.length - 1] - ema;
+}
+
+function calculateBullsPower(closes, highs, lows, period = 13) {
+  const ema = calculateEMA(closes, period);
+  return highs[highs.length - 1] - ema;
+}
+
+function calculateForceIndex(closes, volumes, period = 13) {
+  const force = (closes[closes.length - 1] - closes[closes.length - 2]) * volumes[volumes.length - 1];
+  return calculateEMA([force], period);
+}
+
+function calculateBWMFI(highs, lows, closes, volumes) {
+  const range = highs[highs.length - 1] - lows[lows.length - 1];
+  return range === 0 ? 0 : (volumes[volumes.length - 1] / range);
+}
+
 // 7. 실행
 eval(js_code);
 const backtestResult = runStrategy(convertedCandles, settings);
