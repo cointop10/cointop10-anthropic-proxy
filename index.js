@@ -965,30 +965,30 @@ console.log('📊 Trades:', backtestResult.total_trades);
 
 // ✅ 필수 필드 기본값 추가
 const normalizedResult = {
-trades: (backtestResult.trades || [])
-  .filter(t => t.balance > 0)  // ← balance 0 이하 제거!
-  .map(t => {
-    // 커뮤니티 전략은 size가 이미 코인 개수!
-    const coinSize = t.size || 0;
-    const usdtSize = t.entry_price && coinSize ? coinSize * t.entry_price : 0;
-    
-    // order_type에 side 정보 추가
-    let orderType = t.order_type || 'MARKET';
-    const side = t.side ? t.side.toUpperCase() : null;
-    
-    if (side && !orderType.includes('BUY') && !orderType.includes('SELL')) {
-      const prefix = side === 'LONG' ? 'BUY' : 'SELL';
-      orderType = `${prefix} ${orderType}`;
-    }
-    
-    return {
-      ...t,
-      coin_size: coinSize > 0 ? parseFloat(coinSize.toFixed(8)) : null,
-      usdt_size: usdtSize > 0 ? parseFloat(usdtSize.toFixed(2)) : null,
-      order_type: orderType,
-      side: side
-    };
-  }),
+  trades: (backtestResult.trades || [])
+    .filter(t => t.balance && t.balance > 0)
+    .map(t => {
+      // 커뮤니티 전략은 size가 이미 코인 개수!
+      const coinSize = t.size || 0;
+      const usdtSize = t.entry_price && coinSize ? coinSize * t.entry_price : 0;
+      
+      // order_type에 side 정보 추가
+      let orderType = t.order_type || 'MARKET';
+      const side = t.side ? t.side.toUpperCase() : null;
+      
+      if (side && !orderType.includes('BUY') && !orderType.includes('SELL')) {
+        const prefix = side === 'LONG' ? 'BUY' : 'SELL';
+        orderType = `${prefix} ${orderType}`;
+      }
+      
+      return {
+        ...t,
+        coin_size: coinSize ? parseFloat(coinSize.toFixed(8)) : 0,
+        usdt_size: usdtSize ? parseFloat(usdtSize.toFixed(2)) : 0,
+        order_type: orderType,
+        side: side
+      };
+    }),
   
   equity_curve: backtestResult.equity_curve || [],
   roi: parseFloat(backtestResult.roi) || 0,
