@@ -632,13 +632,20 @@ app.post('/api/backtest', async (req, res) => {
     
     console.log('✅ Strategy code loaded');
     
-    // 2. Volume에서 캔들 가져오기
-    const filePath = path.join(DATA_PATH, settings.market_type, `${settings.symbol}.csv`);
-    console.log('📡 Reading candles from Volume:', filePath);
-    
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: `Candle file not found: ${settings.symbol}` });
-    }
+// 2. Volume에서 캔들 가져오기
+// 파일명: futures_BTCUSDT.csv 또는 BTCUSDT.csv 모두 시도
+let filePath = path.join(DATA_PATH, settings.market_type, `${settings.symbol}.csv`);
+
+if (!fs.existsSync(filePath)) {
+  // prefix 붙인 파일명 시도
+  filePath = path.join(DATA_PATH, settings.market_type, `${settings.market_type}_${settings.symbol}.csv`);
+}
+
+console.log('📡 Reading candles from Volume:', filePath);
+
+if (!fs.existsSync(filePath)) {
+  return res.status(404).json({ error: `Candle file not found: ${settings.symbol}` });
+}
     
     const csvText = fs.readFileSync(filePath, 'utf-8');
     
