@@ -622,7 +622,7 @@ app.post('/api/backtest', async (req, res) => {
     
     // 3. CSV 파싱
     const lines = csvText.split('\n').filter(line => line.trim());
-    lines.shift(); // 헤더 제거
+    lines.shift();
     
     const allCandles = lines.map(line => {
       const [timestamp, open, high, low, close, volume] = line.split(',');
@@ -653,17 +653,14 @@ app.post('/api/backtest', async (req, res) => {
     console.log('✅ Converted to', settings.timeframe, ':', convertedCandles.length, 'candles');
     
     // 6. 실행
-    console.log('🔍 js_code 길이:', js_code.length);
-console.log('🔍 js_code 시작 100자:', js_code.substring(0, 100));
     eval(js_code);
-const result = runStrategy(convertedCandles, settings);
-    const result = runStrategy(convertedCandles, settings);
+    const backtestResult = runStrategy(convertedCandles, settings);  // ← result 대신 backtestResult!
     
     console.log('✅ Backtest complete');
-    console.log('📊 ROI:', result.roi + '%');
-    console.log('📊 Trades:', result.total_trades);
+    console.log('📊 ROI:', backtestResult.roi + '%');
+    console.log('📊 Trades:', backtestResult.total_trades);
     
-    res.json(result);
+    res.json(backtestResult);  // ← 여기도!
     
   } catch (error) {
     console.error('❌ Error:', error);
