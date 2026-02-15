@@ -32,7 +32,7 @@ app.post('/api/convert-mq', async (req, res) => {
         'content-type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
+        model: 'claude-3-5-haiku-20241022',
 max_tokens: 8000,
         messages: [{
           role: 'user',
