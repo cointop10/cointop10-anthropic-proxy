@@ -1485,9 +1485,8 @@ const usdtSize = t.entry_price && coinSize ? coinSize * t.entry_price : 0;
   total_fee: parseFloat(backtestResult.total_fee) || 0,
   final_balance: parseFloat(backtestResult.final_balance) || settings.initialBalance || 10000,
   initial_balance: settings.initialBalance || 10000,
-  symbol: settings.symbol,
-  timeframe: settings.timeframe,
-...backtestResult  // 나머지 필드들도 포함
+symbol: settings.symbol,
+  timeframe: settings.timeframe
   };
 
   res.json(normalizedResult);
