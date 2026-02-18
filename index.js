@@ -782,6 +782,11 @@ js_code = js_code
   .trim();
 
 // function runStrategy로 시작하는지 확인
+// function runStrategy 없으면 자동으로 감싸기
+if (!js_code.includes('function runStrategy')) {
+  js_code = `function runStrategy(candles, settings) {\n${js_code}\n}`;
+}
+// 그래도 없으면 에러
 if (!js_code.includes('function runStrategy')) {
   return res.status(400).json({ error: 'Invalid strategy code: missing runStrategy function' });
 }
