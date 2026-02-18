@@ -782,11 +782,6 @@ js_code = js_code
   .trim();
 
 // function runStrategy로 시작하는지 확인
-// function runStrategy 없으면 자동으로 감싸기
-if (!js_code.includes('function runStrategy')) {
-  js_code = `function runStrategy(candles, settings) {\n${js_code}\n}`;
-}
-// 그래도 없으면 에러
 if (!js_code.includes('function runStrategy')) {
   return res.status(400).json({ error: 'Invalid strategy code: missing runStrategy function' });
 }
@@ -1449,16 +1444,13 @@ for (const [key, value] of Object.entries(communitySettings)) {
 
 // 9. 실행 (에러 핸들링)
 try {
-const runStrategy = new Function('candles', 'settings', `
-  ${js_code}
-  return runStrategy(candles, settings);
-`);
-
-if (typeof runStrategy !== 'function') {
-  throw new Error('runStrategy function not found in strategy code');
-}
-
-const backtestResult = runStrategy(convertedCandles, communitySettings);
+  eval(js_code);
+  
+  if (typeof runStrategy !== 'function') {
+    throw new Error('runStrategy function not found in strategy code');
+  }
+  
+  const backtestResult = runStrategy(convertedCandles, communitySettings);
   
   if (!backtestResult || !backtestResult.trades) {
     throw new Error('Invalid backtest result: missing trades array');
@@ -1536,4 +1528,3 @@ symbol: settings.symbol,
     });
   }
 });
-
