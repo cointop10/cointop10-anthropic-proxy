@@ -716,6 +716,32 @@ function convertTimeframe(candles, timeframe) {
   return result;
 }
 
+app.get('/api/candles/list', (req, res) => {
+  try {
+    const result = {};
+    const markets = ['futures', 'spot'];
+    
+    for (const market of markets) {
+      const dir = path.join(DATA_PATH, market);
+      if (fs.existsSync(dir)) {
+        result[market] = fs.readdirSync(dir).map(file => {
+          const stat = fs.statSync(path.join(dir, file));
+          return {
+            name: file,
+            size: (stat.size / 1024 / 1024).toFixed(1) + 'MB'
+          };
+        });
+      } else {
+        result[market] = [];
+      }
+    }
+    
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Proxy running on port ${PORT}`);
