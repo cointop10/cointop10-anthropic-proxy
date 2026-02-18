@@ -1449,8 +1449,10 @@ for (const [key, value] of Object.entries(communitySettings)) {
 
 // 9. 실행 (에러 핸들링)
 try {
-eval(js_code);
-const runStrategy = eval('runStrategy');
+const runStrategy = new Function('candles', 'settings', `
+  ${js_code}
+  return runStrategy(candles, settings);
+`);
 
 if (typeof runStrategy !== 'function') {
   throw new Error('runStrategy function not found in strategy code');
