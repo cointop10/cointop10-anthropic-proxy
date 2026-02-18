@@ -790,12 +790,7 @@ console.log('✅ Strategy code loaded and cleaned');
     
 // 2. Volume에서 캔들 가져오기
 // 파일명: futures_BTCUSDT.csv 또는 BTCUSDT.csv 모두 시도
-let filePath = path.join(DATA_PATH, settings.market_type, `${settings.symbol}.csv`);
-
-if (!fs.existsSync(filePath)) {
-  // prefix 붙인 파일명 시도
-  filePath = path.join(DATA_PATH, settings.market_type, `${settings.market_type}_${settings.symbol}.csv`);
-}
+let filePath = path.join(DATA_PATH, settings.market_type, `${settings.symbol}_${settings.timeframe}.csv`);
 
 console.log('📡 Reading candles from Volume:', filePath);
 
@@ -835,9 +830,8 @@ if (!fs.existsSync(filePath)) {
     console.log('✅ Filtered:', filteredCandles.length, 'candles');
     
     // 5. 타임프레임 변환
-    const convertedCandles = convertTimeframe(filteredCandles, settings.timeframe);
-    
-    console.log('✅ Converted to', settings.timeframe, ':', convertedCandles.length, 'candles');
+const convertedCandles = filteredCandles;
+console.log('✅ Using pre-built', settings.timeframe, ':', convertedCandles.length, 'candles');
     
 
 // 6. 표준 지표 함수 정의 (MT4/MT5 전체 + 추가 지표)
